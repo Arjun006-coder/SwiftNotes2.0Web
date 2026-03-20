@@ -1,0 +1,21 @@
+
+> swift-notes-web@0.1.0 lint
+> eslint
+
+
+D:\SwiftNotes\SwiftNotesWeb\src\app\dashboard\page.tsx
+  76:54  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\SwiftNotes\SwiftNotesWeb\src\app\notebook\[id]\page.tsx
+  11:13  warning  'id' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+D:\SwiftNotes\SwiftNotesWeb\src\app\page.tsx
+  6:10  warning  'cn' is defined but never used  @typescript-eslint/no-unused-vars
+
+D:\SwiftNotes\SwiftNotesWeb\src\components\notebook\PageFlipEngine.tsx
+  11:13  error  Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  43:39  error  Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  49:14  error  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+
+✖ 6 problems (4 errors, 2 warnings)
+

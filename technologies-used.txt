@@ -1,0 +1,31 @@
+SwiftNotes - Technologies Used
+
+Frontend (UI & Experience)
+- Next.js 15: The core React framework powering the frontend, SSR, and API routes.
+- React 19: The UI library used for building interactive components.
+- Tailwind CSS (v4): The utility-first CSS framework for styling components, complete with custom CSS variables for light/dark glassmorphism modes.
+- Framer Motion: Used heavily for drag-and-drop mechanics, page transitions, sidebar sliding animations, and hover effects.
+- Lucide React: A clean, modern SVG icon library used for all UI icons.
+- next-themes: Powers the Light Mode ("Glassmorphism") and Dark Mode ("Pop") seamless toggling.
+
+Editor & Content Creation
+- Tiptap (ProseMirror): The headless rich-text editor engine used for building the Notebook text editor. Includes extensions for custom fonts, text colors, sizes, and collaborative editing.
+- React Player: Injected to handle syncing YouTube video playback and timestamps natively within the notebook.
+- Canvas API: Native HTML5 canvas used to power the "Draw" mode for free-form note-taking.
+- Web APIs (FileReader): Used for converting uploaded Images, PDFs, and Audio files to Base64 so they can be injected as draggable Polaroid Snaps.
+
+Real-time Collaboration
+- Liveblocks: Powers the real-time multiplayer cursors, presence, and shared state across the Notebook editor.
+- Yjs: A CRDT (Conflict-free Replicated Data Type) framework, used in conjunction with Liveblocks and Tiptap, to ensure multiple users can type simultaneously without merge conflicts.
+
+Backend & Intelligent Features
+- Next.js Server Actions: Used extensively across `actions.ts` for all database interactions securely on the server.
+- Google Generative AI (Gemini SDK): Backs the interactive right-hand 'Spark AI' side panel, providing on-the-fly Q&A, cheatsheets, examples, and study guides derived directly from the user's notebook text context.
+- Clerk: Authentication platform used for secure sign-ups, log-ins, and user management.
+
+Database & Storage
+- Supabase (PostgreSQL): The core relational database storing Users, Notebooks, NotePages, Snaps (Polaroids), and User Stats.
+- Prisma Formatter (implied by typical setups): Ensures strict schema typing across Supabase connections.
+
+Core Architecture
+The app follows a modern full-stack web structure relying on an edge-ready framework (Next.js App Router). It leverages Client-side components ("use client") for highly interactive mechanics (drag, drop, typing, playing video) while pushing heavy lifting and secure data fetching to the Server-side (Server Actions & API Routes).

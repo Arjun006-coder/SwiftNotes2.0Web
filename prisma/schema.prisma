@@ -1,0 +1,58 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        String     @id @default(uuid())
+  clerkId   String     @unique
+  email     String     @unique
+  name      String?
+  avatar    String?
+  notebooks Notebook[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Notebook {
+  id         String     @id @default(uuid())
+  userId     String
+  title      String
+  coverColor String     @default("from-[#A18CD1] to-[#FBC2EB]")
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pages      NotePage[]
+}
+
+model NotePage {
+  id          String   @id @default(uuid())
+  notebookId  String
+  pageNumber  Int
+  content     String?
+  drawingData String?
+  createdAt   DateTime @default(now())
+
+  notebook Notebook @relation(fields: [notebookId], references: [id], onDelete: Cascade)
+  snaps    Snap[]
+
+  @@unique([notebookId, pageNumber])
+}
+
+model Snap {
+  id         String   @id @default(uuid())
+  notePageId String
+  imageUrl   String
+  caption    String?
+  x          Float    @default(0)
+  y          Float    @default(0)
+  rotation   Float    @default(0)
+
+  notePage NotePage @relation(fields: [notePageId], references: [id], onDelete: Cascade)
+}

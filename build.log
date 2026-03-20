@@ -1,0 +1,24 @@
+
+> swift-notes-web@0.1.0 build
+> next build
+
+▲ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local, .env
+
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+  Creating an optimized production build ...
+✓ Compiled successfully in 3.7s
+  Running TypeScript ...
+Failed to compile.
+
+./src/components/notebook/NotebookEditor.tsx:49:13
+Type error: Unused '@ts-expect-error' directive.
+
+[0m [90m 47 |[39m     [36mconst[39m editor [33m=[39m useEditor({
+ [90m 48 |[39m         extensions[33m:[39m [
+[31m[1m>[22m[39m[90m 49 |[39m             [90m// @ts-expect-error - history exists but types might be outdated[39m
+ [90m    |[39m             [31m[1m^[22m[39m
+ [90m 50 |[39m             [33mStarterKit[39m[33m.[39mconfigure({
+ [90m 51 |[39m                 history[33m:[39m [36mfalse[39m[33m,[39m [90m// Disabled because Collaboration provides its own history[39m
+ [90m 52 |[39m             })[33m,[39m[0m
+Next.js build worker exited with code: 1 and signal: null
