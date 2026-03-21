@@ -322,7 +322,7 @@ export async function deleteNotebook(notebookId: string) {
     return data;
 }
 
-export async function getCommunityNotebooks(search: string = "", tagFilter: string = "") {
+export async function getCommunityNotebooks(search: string = "", tagFilters: string[] = [], sortOption: string = "trending") {
     try {
         let query = supabaseAdmin
             .from("Notebook")
@@ -331,22 +331,36 @@ export async function getCommunityNotebooks(search: string = "", tagFilter: stri
                 "coverColor", "createdAt", "updatedAt", "userId",
                 user:User(id, name, email, avatar)
             `)
-            .eq("isPublic", true)
-            .order("likes", { ascending: false })
-            .order("updatedAt", { ascending: false })
-            .limit(50);
+            .eq("isPublic", true);
+
+        // Reddit-Style Sorting Filters
+        if (sortOption === "newest") {
+            query = query.order("createdAt", { ascending: false });
+        } else if (sortOption === "topWeek") {
+            const lastWeek = new Date();
+            lastWeek.setDate(lastWeek.getDate() - 7);
+            query = query.gte("createdAt", lastWeek.toISOString()).order("likes", { ascending: false });
+        } else if (sortOption === "topAllTime") {
+            query = query.order("likes", { ascending: false }).order("updatedAt", { ascending: false });
+        } else {
+            // Default Trending
+            query = query.order("likes", { ascending: false }).order("updatedAt", { ascending: false });
+        }
+
+        query = query.limit(50);
 
         // Text search across title and description
         if (search.trim()) {
-            // .or() for dual-field ilike
             query = query.or(
                 `title.ilike.%${search.trim()}%,description.ilike.%${search.trim()}%`
             );
         }
 
-        // Tag filter
-        if (tagFilter && tagFilter !== "All") {
-            query = query.contains("tags", [tagFilter]);
+        // Tag filter (array overlaps) - Matches if notebook has ANY of the provided tagFilters
+        // Remove "All" from the array if it exists
+        const actualTags = tagFilters.filter(t => t && t !== "All");
+        if (actualTags.length > 0) {
+            query = query.overlaps("tags", actualTags);
         }
 
         const { data, error } = await query;
@@ -474,8 +488,8 @@ export async function generateNotebookOTP(notebookId: string) {
 }
 
 export async function joinNotebookByOTP(otp: string) {
-    const { userId } = await auth();
-    if (!userId) throw new Error("Unauthorized");
+    const dbUser = await syncUser();
+    if (!dbUser) throw new Error("Unauthorized");
 
     const { data, error } = await supabaseAdmin
         .from("Notebook")
@@ -485,7 +499,110 @@ export async function joinNotebookByOTP(otp: string) {
 
     if (error || !data) throw new Error("Invalid or Expired OTP");
 
+    // Begin the Ephemeral Request Flow automatically upon OTP usage
+    try {
+        await supabaseAdmin
+            .from("RoomAccessRequest")
+            .upsert({ notebookId: data.id, userId: dbUser.id, status: 'pending' }, { onConflict: 'notebookId,userId' });
+    } catch {
+        // Ignores if they already requested
+    }
+
     return data.id;
+}
+
+export async function checkNotebookAccess(notebookId: string) {
+    const dbUser = await syncUser();
+    if (!dbUser) return { isOwner: false, isCollaborator: false };
+
+    const { data: notebook } = await supabaseAdmin
+        .from("Notebook")
+        .select("userId")
+        .eq("id", notebookId)
+        .single();
+
+    if (!notebook) return { isOwner: false, isCollaborator: false };
+
+    if (notebook.userId === dbUser.id) return { isOwner: true, isCollaborator: true };
+
+    const { data: request } = await supabaseAdmin
+        .from("RoomAccessRequest")
+        .select("status")
+        .eq("notebookId", notebookId)
+        .eq("userId", dbUser.id)
+        .maybeSingle();
+
+    return { isOwner: false, isCollaborator: request?.status === "approved" };
+}
+
+// --- EPHEMERAL ROOM ACCESS MANAGEMENT ---
+
+export async function requestEditAccess(notebookId: string) {
+    const dbUser = await syncUser();
+    if (!dbUser) throw new Error("Unauthorized");
+    const { error } = await supabaseAdmin
+        .from("RoomAccessRequest")
+        .upsert({ notebookId, userId: dbUser.id, status: 'pending' }, { onConflict: 'notebookId,userId' });
+    if (error) throw new Error(error.message);
+}
+
+export async function getPendingRoomRequests(notebookId: string) {
+    const { userId } = await auth();
+    if (!userId) return [];
+    
+    // We only fetch pending requests. User fetching them must be the Owner (checked implicitly by RLS or UI, but we bypass RLS so we just return them)
+    // To be perfectly safe, verify notebook ownership first
+    const dbUser = await syncUser();
+    const { data: nb } = await supabaseAdmin.from("Notebook").select("userId").eq("id", notebookId).single();
+    if (nb?.userId !== dbUser?.id) return [];
+
+    const { data } = await supabaseAdmin
+        .from("RoomAccessRequest")
+        .select(`
+            userId,
+            status,
+            User:userId ( id, email, fullName, imageUrl )
+        `)
+        .eq("notebookId", notebookId)
+        .eq("status", "pending")
+        .order("createdAt", { ascending: false });
+
+    return data || [];
+}
+
+export async function approveEditAccess(notebookId: string, guestUserId: string) {
+    const dbUser = await syncUser();
+    if (!dbUser) throw new Error("Unauthorized");
+    const { data: nb } = await supabaseAdmin.from("Notebook").select("userId").eq("id", notebookId).single();
+    if (nb?.userId !== dbUser.id) throw new Error("Forbidden"); // Only owner can approve
+
+    await supabaseAdmin
+        .from("RoomAccessRequest")
+        .update({ status: 'approved' })
+        .eq("notebookId", notebookId)
+        .eq("userId", guestUserId);
+}
+
+export async function rejectEditAccess(notebookId: string, guestUserId: string) {
+    const dbUser = await syncUser();
+    if (!dbUser) throw new Error("Unauthorized");
+    const { data: nb } = await supabaseAdmin.from("Notebook").select("userId").eq("id", notebookId).single();
+    if (nb?.userId !== dbUser.id) throw new Error("Forbidden");
+
+    await supabaseAdmin
+        .from("RoomAccessRequest")
+        .delete()
+        .eq("notebookId", notebookId)
+        .eq("userId", guestUserId);
+}
+
+export async function revokeEditAccess(notebookId: string, guestUserId: string) {
+    // Both Owner and Guest can revoke (e.g., Guest drops presence -> Auto Purge)
+    await supabaseAdmin
+        .from("RoomAccessRequest")
+        .delete()
+        .eq("notebookId", notebookId)
+        .eq("userId", guestUserId);
 }
 
 export async function getUserStats() {
@@ -530,4 +647,80 @@ export async function getNotebookIdByOTP(otp: string) {
     if (!data) return null;
     const match = data.find(n => n.id.substring(0, 6).toUpperCase() === otp.toUpperCase());
     return match ? match.id : null;
+}
+
+// ==========================================
+// REDDIT-STYLE COMMUNITY FEATURES
+// ==========================================
+
+export async function voteNotebook(notebookId: string, value: 1 | -1 | 0) {
+    const dbUser = await syncUser();
+    if (!dbUser) throw new Error("Unauthorized");
+
+    if (value === 0) {
+        await supabaseAdmin.from("NotebookVote").delete().eq("notebookId", notebookId).eq("userId", dbUser.id);
+    } else {
+        await supabaseAdmin
+            .from("NotebookVote")
+            .upsert({ notebookId, userId: dbUser.id, value }, { onConflict: "notebookId,userId" });
+    }
+
+    // Recalculate physical 'likes' metric on Notebook for legacy API compatibility
+    const { data } = await supabaseAdmin.from("NotebookVote").select("value").eq("notebookId", notebookId);
+    const score = (data || []).reduce((acc: number, v: any) => acc + (v.value || 0), 0);
+    await supabaseAdmin.from("Notebook").update({ likes: score }).eq("id", notebookId);
+
+    return score;
+}
+
+export async function toggleBookmark(notebookId: string, isBookmarked: boolean) {
+    const dbUser = await syncUser();
+    if (!dbUser) throw new Error("Unauthorized");
+
+    if (isBookmarked) {
+        await supabaseAdmin.from("UserFavorite").delete().eq("notebookId", notebookId).eq("userId", dbUser.id);
+    } else {
+        await supabaseAdmin.from("UserFavorite").upsert({ notebookId, userId: dbUser.id }, { onConflict: "notebookId,userId" });
+    }
+}
+
+export async function getNotebookComments(notebookId: string) {
+    const { data } = await supabaseAdmin
+        .from("NotebookComment")
+        .select(`id, content, createdAt, userId, User:userId ( id, name, email, avatar )`)
+        .eq("notebookId", notebookId)
+        .order("createdAt", { ascending: false });
+    return data || [];
+}
+
+export async function addNotebookComment(notebookId: string, content: string) {
+    const dbUser = await syncUser();
+    if (!dbUser) throw new Error("Unauthorized");
+    if (!content.trim()) throw new Error("Comment cannot be completely empty.");
+
+    const { data: inserted, error: insertError } = await supabaseAdmin
+        .from("NotebookComment")
+        .insert({ notebookId, userId: dbUser.id, content: content.trim() })
+        .select()
+        .single();
+    
+    if (insertError) throw new Error(insertError.message);
+
+    const { data } = await supabaseAdmin
+        .from("NotebookComment")
+        .select(`id, content, createdAt, userId, User:userId ( id, name, email, avatar )`)
+        .eq("id", inserted.id)
+        .single();
+
+    return data;
+}
+
+export async function logNotebookView(notebookId: string) {
+    // Highly efficient read-modify-write for views without custom RPC
+    try {
+        const { data } = await supabaseAdmin.from("Notebook").select("views").eq("id", notebookId).single();
+        if (data !== null) {
+            await supabaseAdmin.from("Notebook").update({ views: (data.views || 0) + 1 }).eq("id", notebookId);
+        }
+    } catch { }
 }

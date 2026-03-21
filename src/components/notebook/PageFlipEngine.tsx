@@ -21,6 +21,7 @@ interface PageProps {
     onSeekTo?: (seconds: number) => void;
     onSnapSeek?: (imageUrl: string) => void;
     snaps?: any[];
+    readOnly?: boolean;
 }
 
 const Page = forwardRef<HTMLDivElement, PageProps>((props, ref) => {
@@ -30,21 +31,21 @@ const Page = forwardRef<HTMLDivElement, PageProps>((props, ref) => {
             <LinedPaper />
 
             {/* Drawing Canvas */}
-            <div className={`absolute inset-0 z-10 ${props.mode === "draw" ? "pointer-events-auto" : "pointer-events-none"}`}>
+            <div className={`absolute inset-0 z-10 ${props.mode === "draw" && !props.readOnly ? "pointer-events-auto" : "pointer-events-none"}`}>
                 <DrawingCanvas
                     drawingData={props.drawingData || null}
-                    onUpdate={(data) => { if (props.onSaveDrawing) props.onSaveDrawing(data); }}
-                    isReadOnly={props.mode !== "draw"}
+                    onUpdate={(data) => { if (props.onSaveDrawing && !props.readOnly) props.onSaveDrawing(data); }}
+                    isReadOnly={props.mode !== "draw" || props.readOnly}
                 />
             </div>
 
             {/* Text Editor */}
-            <div className={`absolute inset-0 z-20 ${props.mode === "text" ? "pointer-events-auto" : "pointer-events-none"}`}>
+            <div className={`absolute inset-0 z-20 ${props.mode === "text" && !props.readOnly ? "pointer-events-auto" : "pointer-events-none"}`}>
                 <NotebookEditor
                     pageId={props.id || `temp-${props.number}`}
                     content={props.content}
-                    onUpdate={(html: string) => { if (props.onSaveText) props.onSaveText(html); }}
-                    isReadOnly={props.mode !== "text"}
+                    onUpdate={(html: string) => { if (props.onSaveText && !props.readOnly) props.onSaveText(html); }}
+                    isReadOnly={props.mode !== "text" || props.readOnly}
                 />
             </div>
 
@@ -87,9 +88,10 @@ interface PageFlipEngineProps {
     onSeekTo?: (seconds: number) => void;
     onSnapSeek?: (imageUrl: string) => void;
     onFlip?: (pageIndex: number) => void;
+    readOnly?: boolean;
 }
 
-export default function PageFlipEngine({ pages, mode, onSaveText, onSaveDrawing, onSaveSnap, onDeleteSnap, onSeekTo, onSnapSeek, onFlip }: PageFlipEngineProps) {
+export default function PageFlipEngine({ pages, mode, onSaveText, onSaveDrawing, onSaveSnap, onDeleteSnap, onSeekTo, onSnapSeek, onFlip, readOnly }: PageFlipEngineProps) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const bookRef = useRef<any>(null);
     const [currentPage, setCurrentPage] = useState(0);
@@ -161,6 +163,7 @@ export default function PageFlipEngine({ pages, mode, onSaveText, onSaveDrawing,
                             drawingData={p.drawingData}
                             mode={mode}
                             snaps={p.snaps}
+                            readOnly={readOnly}
                             onSaveText={(content) => p.id && onSaveText && onSaveText(p.id, content)}
                             onSaveDrawing={(data) => p.id && onSaveDrawing && onSaveDrawing(p.id, data)}
                             onSaveSnap={(snapId, x, y) => onSaveSnap && onSaveSnap(snapId, x, y)}

@@ -3,10 +3,11 @@
 import { motion } from "framer-motion";
 import { Search, Heart, BookOpen, Globe, Tag, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useEffect, useState, useMemo, useCallback } from "react";
-import { getCommunityNotebooks } from "@/app/actions";
+import { useEffect, useState, useCallback } from "react";
+import { getCommunityNotebooks, voteNotebook, toggleBookmark } from "@/app/actions";
 import Link from "next/link";
 import { useDebounceValue } from "usehooks-ts";
+import CommentsModal from "@/components/notebook/CommentsModal";
 
 const GRADIENTS = [
     "from-violet-500 to-indigo-500",
@@ -24,32 +25,58 @@ export default function CommunityPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [searchInput, setSearchInput] = useState("");
     const [activeTag, setActiveTag] = useState("All");
+    const [sortMode, setSortMode] = useState<"trending" | "topWeek" | "topAllTime" | "newest">("trending");
+    
+    // Interactive Modal states
+    const [commentTarget, setCommentTarget] = useState<{ id: string, title: string } | null>(null);
 
     // Debounce search to avoid spamming the server action
     const [debouncedSearch] = useDebounceValue(searchInput, 400);
 
-    const fetchNotebooks = useCallback(async (search: string, tag: string) => {
+    const fetchNotebooks = useCallback(async (search: string, tag: string, sort: string) => {
         setIsLoading(true);
-        const data = await getCommunityNotebooks(search, tag === "All" ? "" : tag);
+        let tagFilters: string[] = [];
+        if (tag !== "All") tagFilters.push(tag);
+
+        if (search.trim()) {
+            // Advanced Feature: Map search query to semantic tags using NLP
+            try {
+                const res = await fetch("/api/semantic-tags", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ search })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.tags && data.tags.length > 0) {
+                        tagFilters = [...new Set([...tagFilters, ...data.tags])];
+                    }
+                }
+            } catch (e) {
+                console.error("NLP semantic tag fetch failed", e);
+            }
+        }
+
+        const data = await getCommunityNotebooks(search, tagFilters, sort);
         setNotebooks(data || []);
         setIsLoading(false);
     }, []);
 
     // Fetch on mount
     useEffect(() => {
-        fetchNotebooks("", "");
+        fetchNotebooks("", "", "trending");
     }, [fetchNotebooks]);
 
     // Re-fetch when search or tag changes
     useEffect(() => {
-        fetchNotebooks(debouncedSearch, activeTag);
-    }, [debouncedSearch, activeTag, fetchNotebooks]);
+        fetchNotebooks(debouncedSearch, activeTag, sortMode);
+    }, [debouncedSearch, activeTag, sortMode, fetchNotebooks]);
 
     // All tags extracted from current results (for the "All" case — full tag list)
     const [allTags, setAllTags] = useState<string[]>(["All"]);
     useEffect(() => {
         // Fetch all public notebooks without filter to build the tag cloud
-        getCommunityNotebooks("", "").then(data => {
+        getCommunityNotebooks("", [], "trending").then(data => {
             if (!data) return;
             const tagSet = new Set<string>(["All"]);
             data.forEach((n: any) => (n.tags || []).forEach((t: string) => tagSet.add(t)));
@@ -57,8 +84,43 @@ export default function CommunityPage() {
         });
     }, []);
 
+    const handleVote = async (notebookId: string, value: 1 | -1, currentIndex: number) => {
+        try {
+            // Optimistic UI update
+            const updated = [...notebooks];
+            const nb = updated[currentIndex];
+            const newValue = value === nb.myVote ? 0 : value; // toggle off if clicking same
+
+            // Compute delta
+            const previousVote = nb.myVote || 0;
+            const delta = newValue - previousVote;
+            nb.likes = (nb.likes || 0) + delta;
+            nb.myVote = newValue;
+            setNotebooks(updated);
+
+            await voteNotebook(notebookId, newValue as any);
+        } catch (e: any) { alert(e.message); }
+    };
+
+    const handleBookmark = async (notebookId: string, currentIndex: number) => {
+        try {
+            const updated = [...notebooks];
+            const nb = updated[currentIndex];
+            nb.isBookmarked = !nb.isBookmarked;
+            setNotebooks(updated);
+            await toggleBookmark(notebookId, nb.isBookmarked);
+        } catch (e: any) { alert(e.message); }
+    };
+
     return (
         <div className="p-6 md:p-8 md:pt-12 max-w-7xl mx-auto space-y-8 pb-20">
+            {commentTarget && (
+                <CommentsModal 
+                    notebookId={commentTarget.id} 
+                    notebookTitle={commentTarget.title} 
+                    onClose={() => setCommentTarget(null)} 
+                />
+            )}
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
                 <div>
@@ -66,7 +128,7 @@ export default function CommunityPage() {
                         Community Hub
                     </h1>
                     <p className="text-muted-foreground mt-2 text-sm">
-                        Explore public notebooks shared by the community. Publish yours via notebook → ⚙️ settings.
+                        Explore, vote, and discuss public notebooks shared by the community.
                     </p>
                 </div>
                 <div className="relative shrink-0">
@@ -75,29 +137,56 @@ export default function CommunityPage() {
                         type="text"
                         value={searchInput}
                         onChange={e => setSearchInput(e.target.value)}
-                        placeholder="Search by title, description, or tag..."
-                        className="bg-white/5 border border-white/10 rounded-full py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-primary/50 w-72 transition-all"
+                        placeholder="Search by title, description, or semantic queries..."
+                        className="bg-white/5 border border-white/10 rounded-full py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-primary/50 w-72 lg:w-96 transition-all"
                     />
                 </div>
             </div>
 
-            {/* Tag filter pills */}
-            <div className="flex flex-wrap gap-2">
-                {allTags.map(tag => (
-                    <button
-                        key={tag}
-                        onClick={() => setActiveTag(tag)}
-                        className={cn(
-                            "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all border",
-                            activeTag === tag
-                                ? "bg-primary text-white border-primary shadow-[var(--glow-primary)]"
-                                : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10 hover:text-white"
-                        )}
-                    >
-                        {tag !== "All" && <Tag size={10} />}
-                        {tag}
-                    </button>
-                ))}
+            {/* Sub-Navigation and Filters */}
+            <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+                {/* Reddit-Style Trending Tabs */}
+                <div className="flex bg-white/5 border border-white/10 p-1 rounded-full">
+                    {[
+                        { id: "trending", label: "🔥 Trending" },
+                        { id: "topWeek", label: "🎖️ Top (Week)" },
+                        { id: "topAllTime", label: "🏆 All Time" },
+                        { id: "newest", label: "✨ Newest" },
+                    ].map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setSortMode(tab.id as any)}
+                            className={cn(
+                                "px-4 py-1.5 rounded-full text-xs font-semibold transition-all",
+                                sortMode === tab.id
+                                    ? "bg-primary text-white shadow-md shadow-primary/20"
+                                    : "text-muted-foreground hover:text-white hover:bg-white/5"
+                            )}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Tag pill filters */}
+                <div className="flex flex-wrap gap-2 max-w-xl justify-end">
+                    {allTags.slice(0, 8).map(tag => (
+                        <button
+                            key={tag}
+                            onClick={() => setActiveTag(tag)}
+                            className={cn(
+                                "flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold transition-all border",
+                                activeTag === tag
+                                    ? "bg-primary text-white border-primary shadow-[var(--glow-primary)]"
+                                    : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10 hover:text-white"
+                            )}
+                        >
+                            {tag !== "All" && <Tag size={10} />}
+                            {tag}
+                        </button>
+                    ))}
+                    {allTags.length > 8 && <span className="text-[10px] text-muted-foreground self-center ml-1">+{allTags.length - 8} more</span>}
+                </div>
             </div>
 
             {/* Loading skeleton */}
@@ -146,7 +235,7 @@ export default function CommunityPage() {
                                         {/* Color accent bar */}
                                         <div className={`h-1.5 w-full bg-gradient-to-r ${gradient} shrink-0`} />
 
-                                        <div className="p-5 flex flex-col flex-1">
+                                        <div className="p-5 flex flex-col flex-1 pb-16">
                                             {/* Author */}
                                             <div className="flex items-center gap-2.5 mb-3">
                                                 <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center text-white text-sm font-bold shrink-0 shadow-sm overflow-hidden`}>
@@ -157,20 +246,19 @@ export default function CommunityPage() {
                                                 <div className="min-w-0 flex-1">
                                                     <p className="text-xs font-semibold text-white/80 truncate">{authorName}</p>
                                                     <div className="flex items-center gap-1 text-[10px] text-green-400">
-                                                        <Globe size={9} /> Public
+                                                        <Globe size={9} /> {nb.views ? `${nb.views} views` : 'Public'}
                                                     </div>
                                                 </div>
-                                                <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-                                                    <Heart size={12} />
-                                                    <span>{nb.likes || 0}</span>
-                                                </div>
+                                                <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleBookmark(nb.id, i); }} className="flex items-center justify-center p-2 rounded-full hover:bg-white/10 transition group/bm">
+                                                    <Heart size={14} className={cn("transition", nb.isBookmarked ? "text-rose-400 fill-rose-400" : "text-muted-foreground group-hover/bm:text-rose-400")} />
+                                                </button>
                                             </div>
 
                                             {/* Title */}
                                             <h2 className="font-display font-bold text-base text-white group-hover:text-primary transition-colors line-clamp-1 mb-1">
                                                 {nb.title}
                                             </h2>
-                                            <p className="text-xs text-muted-foreground line-clamp-2 flex-1 leading-relaxed">
+                                            <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
                                                 {nb.description?.trim() || "A notebook shared to the SwiftNotes community."}
                                             </p>
 
@@ -198,6 +286,24 @@ export default function CommunityPage() {
                                                     )}
                                                 </div>
                                             )}
+                                        </div>
+
+                                        {/* Reddit-Style Voting/Action Bar at bottom */}
+                                        <div className="absolute bottom-0 left-0 w-full p-4 flex items-center justify-between border-t border-white/5 bg-black/20 backdrop-blur-sm z-20">
+                                            <div className="flex bg-white/5 rounded-full items-center">
+                                                <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleVote(nb.id, 1, i); }} className="p-1.5 rounded-full hover:bg-white/10 transition group/up">
+                                                    <svg className={cn("w-4 h-4 transition", nb.myVote === 1 ? "text-orange-500" : "text-muted-foreground group-hover/up:text-orange-500")} fill="currentColor" viewBox="0 0 24 24"><path d="M4 14h4v7a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-7h4a1.001 1.001 0 0 0 .781-1.625l-8-10c-.381-.475-1.181-.475-1.562 0l-8 10A1.001 1.001 0 0 0 4 14z" /></svg>
+                                                </button>
+                                                <span className={cn("text-xs font-bold px-1 font-mono", nb.myVote === 1 ? "text-orange-500" : nb.myVote === -1 ? "text-indigo-400" : "text-white")}>{nb.likes || 0}</span>
+                                                <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleVote(nb.id, -1, i); }} className="p-1.5 rounded-full hover:bg-white/10 transition group/down">
+                                                    <svg className={cn("w-4 h-4 transition", nb.myVote === -1 ? "text-indigo-400" : "text-muted-foreground group-hover/down:text-indigo-400")} fill="currentColor" viewBox="0 0 24 24"><path d="M20 10h-4V3a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v7H4a1.001 1.001 0 0 0-.781 1.625l8 10a1 1 0 0 0 1.562 0l8-10A1.001 1.001 0 0 0 20 10z" /></svg>
+                                                </button>
+                                            </div>
+
+                                            <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setCommentTarget({ id: nb.id, title: nb.title }); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full hover:bg-white/5 transition text-muted-foreground hover:text-white">
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+                                                <span className="text-xs font-semibold">{nb.commentCount || Object.keys(nb.NotebookComment || []).length || 0}</span>
+                                            </button>
                                         </div>
 
                                         {/* Background glow */}

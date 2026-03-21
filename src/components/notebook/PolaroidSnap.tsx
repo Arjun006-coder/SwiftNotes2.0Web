@@ -195,8 +195,22 @@ export default function PolaroidSnap({
                             <FileText size={32} className="mb-1 opacity-70" />
                             <span className="text-xs font-bold text-red-700 text-center truncate w-full px-1">PDF Document</span>
                             <a
-                                href={src} target="_blank" rel="noreferrer"
+                                href={src.startsWith("data:") ? "#" : src}
+                                target={src.startsWith("data:") ? undefined : "_blank"}
+                                rel="noreferrer"
                                 className="text-[10px] underline mt-1 text-blue-500 hover:text-blue-700 pointer-events-auto"
+                                onClick={(e) => {
+                                    if (src.startsWith("data:")) {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        fetch(src)
+                                            .then(res => res.blob())
+                                            .then(blob => {
+                                                const url = URL.createObjectURL(blob);
+                                                window.open(url, '_blank');
+                                            });
+                                    }
+                                }}
                                 onPointerDown={e => e.stopPropagation()}
                             >Open ↗</a>
                         </div>

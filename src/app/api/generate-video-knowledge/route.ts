@@ -52,23 +52,23 @@ ${chunks[i]}`;
         // 3. Reduce: Generate final tabs from aggregated facts
         // Note: We use the aggregated facts as context instead of the raw transcript to bypass token limits.
         
-        const summaryPrompt = `Based on these extracted facts from a video, write a comprehensive, well-structured multi-paragraph summary. Cover all major points chronologically or thematically. DO NOT use markdown ticks like \`\`\`
+        const summaryPrompt = `Based on these extracted facts from a video, write a highly detailed, visually appealing, comprehensive educational summary. Break it down using massive Markdown Headers (##) for different themes, use bold text excessively for keywords, and provide extremely deep explanations extracted from the facts. Make it look like a premium study guide. DO NOT use markdown ticks like \`\`\`
 FACTS:
 ${aggregatedFacts}`;
         
-        const cheatsheetPrompt = `Based on these extracted facts from a video, create a highly categorized Cheat Sheet. Group items logically. Use bullet points and bold text for keywords. DO NOT use markdown ticks like \`\`\`
+        const cheatsheetPrompt = `Based on these extracted facts from a video, create a highly categorized visual Cheat Sheet using Markdown. Group items logically under H2 (##) headers. ADD A DEDICATED SECTION AT THE BOTTOM NAMED "## Quick Revision Points" featuring rapid-fire, high-yield bullet points for instant exam revision. Use bold text extensively. DO NOT use markdown ticks like \`\`\`
 FACTS:
 ${aggregatedFacts}`;
 
-        const flashcardsPrompt = `Based on these extracted facts, generate 5-10 specific Question & Answer Flashcards. Format strictly as "Q: ... \nA: ...". DO NOT use markdown ticks like \`\`\`
+        const flashcardsPrompt = `Based on these extracted facts, generate 10-15 deep, conceptual Question & Answer Flashcards. Format strictly as "Q: ... \nA: ...". Ask hard, deeply analytical questions, not just simple definitions. DO NOT use markdown ticks like \`\`\`
 FACTS:
 ${aggregatedFacts}`;
 
-        const formulaePrompt = `Extract ONLY the mathematical formulae, equations, code snippets, or rigid definitions from these facts. If there are none, simply say "No structural formulae found." DO NOT use markdown ticks like \`\`\`
+        const formulaePrompt = `Extract ONLY the mathematical formulae, equations, code snippets, or rigid definitions from these facts. Format them beautifully using markdown headers (##) and bolding. If there are none, simply say "No structural formulae found." DO NOT use markdown ticks like \`\`\`
 FACTS:
 ${aggregatedFacts}`;
 
-        const theoryPrompt = `Explain the deep underlying theory and fundamental concepts behind these facts. Think abstractly and explain the "Why" and "How". DO NOT use markdown ticks like \`\`\`
+        const theoryPrompt = `Explain the deep underlying theory and fundamental concepts behind these facts. Think abstractly and explain the "Why" and "How" in extreme detail. Make it read like a premium textbook chapter with H2 headers, bullet points, and exhaustive conceptual breakdowns. DO NOT use markdown ticks like \`\`\`
 FACTS:
 ${aggregatedFacts}`;
 

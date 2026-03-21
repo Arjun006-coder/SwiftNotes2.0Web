@@ -22,9 +22,18 @@ async function transcribeVideoOffline(url: string, videoId: string) {
     const outputPathTemplate = path.join(tempDir, `${videoId}.%(ext)s`);
     const finalAudioPath = path.join(tempDir, `${videoId}.m4a`);
     
-    console.log(`[Groq Pipeline] Executing native npx yt-dlp directly to extract raw audio for ${videoId}...`);
+    console.log(`[Groq Pipeline] Executing yt-dlp binary natively to extract raw audio for ${videoId}...`);
     // Explicitly select the pre-encoded m4a audio stream to entirely bypass any system FFmpeg requirement!
-    const cmd = `npx --yes yt-dlp -f "bestaudio[ext=m4a]" -o "${outputPathTemplate}" "${url}"`;
+    const isWin = os.platform() === 'win32';
+    const ytDlpBinaryName = isWin ? 'yt-dlp.exe' : 'yt-dlp';
+    const ytDlpPath = path.resolve(process.cwd(), 'node_modules', 'youtube-dl-exec', 'bin', ytDlpBinaryName);
+    
+    // Check if the binary exists just in case
+    if (!fs.existsSync(ytDlpPath)) {
+        throw new Error(`Critical Dependency Missing: yt-dlp binary not found at ${ytDlpPath}`);
+    }
+
+    const cmd = `"${ytDlpPath}" -f "bestaudio[ext=m4a]" -o "${outputPathTemplate}" "${url}"`;
     
     try {
         await execPromise(cmd);

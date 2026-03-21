@@ -1,5 +1,6 @@
 import { Liveblocks } from "@liveblocks/node";
 import { currentUser } from "@clerk/nextjs/server";
+import { checkNotebookAccess } from "@/app/actions";
 
 export const maxDuration = 10; // 10 second max — fail fast instead of 16-min hang
 
@@ -29,9 +30,13 @@ export async function POST(request: Request) {
             });
 
             const { room } = await request.json();
+            const notebookId = room.replace("notebook-", "");
 
-            // Give the user full access to the requested room
-            session.allow(room, session.FULL_ACCESS);
+            const access = await checkNotebookAccess(notebookId);
+            const canEdit = access.isOwner || access.isCollaborator;
+
+            // Protect the room: Owners & OTP-Collaborators get FULL Edit, random Community Visitors get READ_ACCESS
+            session.allow(room, canEdit ? session.FULL_ACCESS : session.READ_ACCESS);
 
             const { status, body } = await session.authorize();
             return new Response(body, { status });

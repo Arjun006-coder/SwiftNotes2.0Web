@@ -15,10 +15,156 @@ import { useParams } from "next/navigation";
 import {
     getNotebook, updateNotePageContent, updateNotePageDrawing, createNotePage,
     updateSnapPosition, deleteNotePage, createSnap, toggleNotebookPrivacy,
-    updateNotebook
+    updateNotebook, checkNotebookAccess, getPendingRoomRequests,
+    requestEditAccess, approveEditAccess, rejectEditAccess, revokeEditAccess
 } from "@/app/actions";
-import { LiveblocksProvider, RoomProvider, ClientSideSuspense } from "@liveblocks/react/suspense";
+import { LiveblocksProvider, RoomProvider, ClientSideSuspense, useOthers, useBroadcastEvent, useEventListener, useSelf, useRoom } from "@liveblocks/react/suspense";
+import { useUser } from "@clerk/nextjs";
 import ConfirmModal from "@/components/ui/ConfirmModal";
+
+// --- LIVEBLOCKS MULTIPLAYER AVATARS ---
+function ActiveUsers({ isPublic }: { isPublic: boolean }) {
+    const others = useOthers();
+    const activeCount = others.length;
+
+    if (activeCount === 0) return null;
+
+    return (
+        <div className="flex items-center gap-2 mr-2">
+            <div className="flex -space-x-2">
+                {others.slice(0, 3).map(o => (
+                    <div key={o.connectionId} className="w-6 h-6 rounded-full border border-background bg-primary/20 flex items-center justify-center overflow-hidden" title={o.info?.name}>
+                        {o.info?.avatar ? (
+                            <img src={o.info.avatar} alt={o.info.name} className="w-full h-full object-cover" />
+                        ) : (
+                            <span className="text-[9px] font-bold text-primary">{o.info?.name?.[0]?.toUpperCase() || "A"}</span>
+                        )}
+                    </div>
+                ))}
+                {activeCount > 3 && (
+                    <div className="w-6 h-6 rounded-full border border-background bg-muted flex items-center justify-center text-[9px] font-bold text-muted-foreground">
+                        +{activeCount - 3}
+                    </div>
+                )}
+            </div>
+            {isPublic && (
+                <span className="text-[10px] text-green-500 font-medium animate-pulse flex items-center gap-1 hidden sm:flex">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Live
+                </span>
+            )}
+        </div>
+    );
+}
+
+// --- LIVEROOM EPHEMERAL EVENT MANAGER ---
+function RoomEventManager({ notebookId, isOwner }: { notebookId: string; isOwner: boolean }) {
+    const broadcast = useBroadcastEvent();
+    const self = useSelf();
+    const room = useRoom();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [pending, setPending] = useState<any[]>([]);
+    const [showRequests, setShowRequests] = useState(false);
+
+    const loadRequests = useCallback(async () => {
+        if (!isOwner) return;
+        const reqs = await getPendingRoomRequests(notebookId);
+        setPending(reqs);
+    }, [isOwner, notebookId]);
+
+    useEffect(() => { loadRequests(); }, [loadRequests]);
+
+    // WebSocket Listeners
+    useEventListener(({ event }) => {
+        const e = event as Record<string, any>;
+        if (e.type === "REQUEST_ACCESS" && isOwner) {
+            loadRequests();
+        } else if (e.type === "ACCESS_GRANTED" && e.userId === self.id) {
+            alert("The Notebook Owner granted you Temporary Edit Access!");
+            window.location.reload(); // Re-authenticates JWT to inject FULL_ACCESS
+        } else if (e.type === "ACCESS_REJECTED" && e.userId === self.id) {
+            alert("Your request to edit was declined.");
+        }
+    });
+
+    // Auto-Purge Presence Matrix 
+    // Triggers explicitly when guests close their tabs or drift offline
+    useEffect(() => {
+        if (!isOwner) return;
+        return room.subscribe("others", (others, event) => {
+            if (event.type === "leave" && event.user?.id) {
+                revokeEditAccess(notebookId, event.user.id).catch(console.error);
+            }
+        });
+    }, [room, isOwner, notebookId]);
+
+    const handleApprove = async (userId: string) => {
+        await approveEditAccess(notebookId, userId);
+        broadcast({ type: "ACCESS_GRANTED", userId });
+        loadRequests();
+    };
+
+    const handleReject = async (userId: string) => {
+        await rejectEditAccess(notebookId, userId);
+        broadcast({ type: "ACCESS_REJECTED", userId });
+        loadRequests();
+    };
+
+    if (!isOwner || pending.length === 0) return null;
+
+    return (
+        <div className="relative z-50">
+            <button
+                onClick={() => setShowRequests(v => !v)}
+                className="relative p-2 text-primary hover:bg-primary/10 rounded-full transition shadow-lg border border-primary/20"
+                title="Pending Requests"
+            >
+                👥 <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center animate-bounce">{pending.length}</span>
+            </button>
+            {showRequests && (
+                <div className="absolute top-full right-0 mt-2 w-64 bg-card border border-border/40 rounded-xl shadow-2xl z-50 p-2 space-y-2 animate-in fade-in slide-in-from-top-2">
+                    <h4 className="text-xs font-semibold text-muted-foreground px-2 pt-1">Requests to Edit</h4>
+                    {pending.map(p => (
+                        <div key={p.userId} className="flex flex-col gap-2 p-2 bg-background/50 rounded-lg border border-border/30">
+                            <div className="flex items-center gap-2">
+                                {p.User.imageUrl ? <img src={p.User.imageUrl} className="w-5 h-5 rounded-full" /> : <div className="w-5 h-5 rounded-full bg-primary/20" />}
+                                <span className="text-sm font-medium truncate">{p.User.fullName || "User"}</span>
+                            </div>
+                            <div className="flex gap-1">
+                                <button onClick={() => handleApprove(p.userId)} className="flex-1 bg-green-500/20 text-green-500 hover:bg-green-500/30 py-1 rounded-md text-xs font-semibold transition">Approve</button>
+                                <button onClick={() => handleReject(p.userId)} className="flex-1 bg-red-500/20 text-red-500 hover:bg-red-500/30 py-1 rounded-md text-xs font-semibold transition">Reject</button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// --- ASK TO EDIT BUTTON OVERLAY ---
+function AskToEditButton({ notebookId, hasRequested: initial }: { notebookId: string; hasRequested: boolean }) {
+    const broadcast = useBroadcastEvent();
+    const self = useSelf();
+    const [status, setStatus] = useState<"idle" | "requested">(initial ? "requested" : "idle");
+
+    const handleReq = async () => {
+        try {
+            await requestEditAccess(notebookId);
+            broadcast({ type: "REQUEST_ACCESS", userId: self.id, name: self.info?.name || "User" });
+            setStatus("requested");
+        } catch (e: any) { alert("Error: " + e.message); }
+    };
+
+    if (status === "requested") {
+        return <span className="px-3 py-1.5 bg-border/40 text-muted-foreground text-[11px] font-medium rounded-full border border-white/5 flex items-center gap-1.5">⏳ Request Pending</span>;
+    }
+
+    return (
+        <button onClick={handleReq} className="px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-[11px] font-bold rounded-full transition shadow-lg shadow-primary/20 flex items-center gap-1.5 animate-in fade-in zoom-in duration-300">
+            ✋ Ask to Edit
+        </button>
+    );
+}
 
 // Parses the notebook.videos TEXT[] column
 function parseVideos(raw: string[] | null | undefined): VideoEntry[] {
@@ -31,6 +177,7 @@ function parseVideos(raw: string[] | null | undefined): VideoEntry[] {
 
 export default function NotebookView() {
     const { id } = useParams();
+    const { user } = useUser();
     const [notebook, setNotebook] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [isSidebarOpen, setSidebarOpen] = useState(false);
@@ -42,6 +189,8 @@ export default function NotebookView() {
     const [editDescription, setEditDescription] = useState("");
     const [editTags, setEditTags] = useState("");
     const [savingSettings, setSavingSettings] = useState(false);
+    const [canEdit, setCanEdit] = useState(true); // Default TRUE until DB resolves
+    const [hasPendingRequest, setHasPendingRequest] = useState(false);
 
     // Video panel state
     const [videoPanelOpen, setVideoPanelOpen] = useState(false);
@@ -85,10 +234,21 @@ export default function NotebookView() {
             } else {
                 setNotebook(data);
             }
+            // Execute Access Control Evaluation
+            const access = await checkNotebookAccess(id as string);
+            setCanEdit(access.isOwner || access.isCollaborator);
+
+            // Determine if they previously clicked "Ask to Edit" and are still waiting
+            if (!access.isOwner && !access.isCollaborator && user?.id) {
+                const reqs = await getPendingRoomRequests(id as string);
+                const amIWaiting = reqs.some((r: any) => r.userId === user?.id);
+                setHasPendingRequest(amIWaiting);
+            }
+
             setLoading(false);
         }
         load();
-    }, [id]);
+    }, [id, user?.id]);
 
     useEffect(() => {
         if (notebook) {
@@ -219,6 +379,10 @@ export default function NotebookView() {
     const handleTogglePrivacy = async () => {
         if (!notebook) return;
         try {
+            // Auto-save currently typed tags/desc before toggling so DB validation passes perfectly!
+            const tags = Array.from(new Set(editTags.split(",").map(t => t.trim().toLowerCase()).filter(Boolean)));
+            await updateNotebook(notebook.id, { description: editDescription, tags });
+            
             await toggleNotebookPrivacy(notebook.id, !notebook.isPublic);
             await refreshNotebook();
         } catch (e: any) { alert(e.message || "Error"); }
@@ -228,7 +392,7 @@ export default function NotebookView() {
         if (!notebook?.id) return;
         setSavingSettings(true);
         try {
-            const tags = editTags.split(",").map(t => t.trim()).filter(Boolean);
+            const tags = Array.from(new Set(editTags.split(",").map(t => t.trim().toLowerCase()).filter(Boolean)));
             await updateNotebook(notebook.id, { description: editDescription, tags });
             await refreshNotebook();
             setSettingsOpen(false);
@@ -311,45 +475,57 @@ export default function NotebookView() {
                                         <Globe size={9} /> Public
                                     </span>
                                 )}
+                                <RoomEventManager notebookId={notebook?.id} isOwner={notebook?.userId === user?.id} />
                             </div>
 
-                            {/* Center: Mode switcher */}
-                            <div className="flex items-center gap-1 bg-black/20 rounded-full p-1 border border-white/5">
-                                <button
-                                    onClick={() => setMode("text")}
-                                    className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${mode === "text" ? "bg-primary/80 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                                >
-                                    ✏️ Text
-                                </button>
-                                <button
-                                    onClick={() => setMode("draw")}
-                                    className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1 ${mode === "draw" ? "bg-primary/80 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                                >
-                                    <Pencil size={11} /> Draw
-                                </button>
-                            </div>
+                            {/* Center: Mode switcher (Hidden if Read-Only) */}
+                            {canEdit ? (
+                                <div className="flex items-center gap-1 bg-black/20 rounded-full p-1 border border-white/5">
+                                    <button
+                                        onClick={() => setMode("text")}
+                                        className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${mode === "text" ? "bg-primary/80 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                                    >
+                                        ✏️ Text
+                                    </button>
+                                    <button
+                                        onClick={() => setMode("draw")}
+                                        className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1 ${mode === "draw" ? "bg-primary/80 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                                    >
+                                        <Pencil size={11} /> Draw
+                                    </button>
+                                </div>
+                            ) : (
+                                <AskToEditButton notebookId={notebook.id} hasRequested={hasPendingRequest} />
+                            )}
 
                             {/* Right: Tools */}
                             <div className="flex items-center gap-1">
-                                {/* File inputs hidden */}
-                                <input type="file" accept="image/*" className="hidden" ref={imageInputRef} onChange={handleFileUpload} />
-                                <input type="file" accept="application/pdf" className="hidden" ref={pdfInputRef} onChange={handleFileUpload} />
-                                <input type="file" accept="audio/*" className="hidden" ref={audioInputRef} onChange={handleFileUpload} />
+                                <ActiveUsers isPublic={notebook?.isPublic} />
 
-                                <div className="hidden sm:flex items-center gap-0.5">
-                                    <button onClick={() => imageInputRef.current?.click()} className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full transition" title="Add Image Polaroid">
-                                        <ImageIcon size={18} />
-                                    </button>
-                                    <button onClick={() => pdfInputRef.current?.click()} className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full transition" title="Add PDF Polaroid">
-                                        <FileText size={18} />
-                                    </button>
-                                    <button onClick={() => audioInputRef.current?.click()} className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full transition" title="Add Audio Note">
-                                        <Mic size={18} />
-                                    </button>
-                                    <div className="w-px h-5 bg-border/50 mx-1" />
-                                </div>
+                                {canEdit && (
+                                    <>
+                                        <div className="w-px h-5 bg-border/50 mx-1 hidden sm:block" />
+                                        {/* File inputs hidden */}
+                                        <input type="file" accept="image/*" className="hidden" ref={imageInputRef} onChange={handleFileUpload} />
+                                        <input type="file" accept="application/pdf" className="hidden" ref={pdfInputRef} onChange={handleFileUpload} />
+                                        <input type="file" accept="audio/*" className="hidden" ref={audioInputRef} onChange={handleFileUpload} />
 
-                                {/* YouTube button — shows video count badge */}
+                                        <div className="hidden sm:flex items-center gap-0.5">
+                                            <button onClick={() => imageInputRef.current?.click()} className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full transition" title="Add Image Polaroid">
+                                                <ImageIcon size={18} />
+                                            </button>
+                                            <button onClick={() => pdfInputRef.current?.click()} className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full transition" title="Add PDF Polaroid">
+                                                <FileText size={18} />
+                                            </button>
+                                            <button onClick={() => audioInputRef.current?.click()} className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full transition" title="Add Audio Note">
+                                                <Mic size={18} />
+                                            </button>
+                                            <div className="w-px h-5 bg-border/50 mx-1" />
+                                        </div>
+                                    </>
+                                )}
+
+                                {/* YouTube button — Accessible to everyone */}
                                 <button
                                     onClick={() => setVideoPanelOpen(v => !v)}
                                     className={`relative p-2 rounded-full transition ${videoPanelOpen ? "text-red-400 bg-red-400/15" : "text-muted-foreground hover:bg-white/8"}`}
@@ -363,107 +539,111 @@ export default function NotebookView() {
                                     )}
                                 </button>
 
-                                <button
-                                    onClick={handleTogglePrivacy}
-                                    className={`p-2 rounded-full transition ${notebook?.isPublic ? "text-green-400 bg-green-400/10" : "text-muted-foreground hover:bg-white/8"}`}
-                                    title={notebook?.isPublic ? "Make Private" : "Publish to Community"}
-                                >
-                                    {notebook?.isPublic ? <Unlock size={18} /> : <Lock size={18} />}
-                                </button>
+                                {canEdit && (
+                                    <>
+                                        <button
+                                            onClick={handleTogglePrivacy}
+                                            className={`p-2 rounded-full transition ${notebook?.isPublic ? "text-green-400 bg-green-400/10" : "text-muted-foreground hover:bg-white/8"}`}
+                                            title={notebook?.isPublic ? "Make Private" : "Publish to Community"}
+                                        >
+                                            {notebook?.isPublic ? <Unlock size={18} /> : <Lock size={18} />}
+                                        </button>
 
-                                <button
-                                    onClick={() => {
-                                        navigator.clipboard.writeText(otp);
-                                        alert(`Live Room Code: ${otp}\n\nCopied! Share with friends.`);
-                                    }}
-                                    className="relative p-2 text-primary hover:bg-primary/10 rounded-full transition"
-                                    title="Go Live"
-                                >
-                                    <Users size={18} />
-                                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                                </button>
+                                        <button
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(otp);
+                                                alert(`Live Room Code: ${otp}\n\nCopied! Share with friends.`);
+                                            }}
+                                            className="relative p-2 text-primary hover:bg-primary/10 rounded-full transition"
+                                            title="Go Live"
+                                        >
+                                            <Users size={18} />
+                                            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                                        </button>
 
-                                <div className="w-px h-5 bg-border/50 mx-0.5" />
+                                        <div className="w-px h-5 bg-border/50 mx-0.5" />
 
-                                <button onClick={handleNewPage} className="p-2 text-muted-foreground hover:text-foreground hover:bg-white/5 rounded-full transition" title="New Page">
-                                    <Plus size={20} />
-                                </button>
-                                <button onClick={promptDeletePage} className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full transition" title="Delete Page">
-                                    <Trash2 size={20} />
-                                </button>
+                                        <button onClick={handleNewPage} className="p-2 text-muted-foreground hover:text-foreground hover:bg-white/5 rounded-full transition" title="New Page">
+                                            <Plus size={20} />
+                                        </button>
+                                        <button onClick={promptDeletePage} className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full transition" title="Delete Page">
+                                            <Trash2 size={20} />
+                                        </button>
 
-                                <button
-                                    onClick={() => setSidebarOpen(v => !v)}
-                                    className={`p-2 rounded-full transition ${isSidebarOpen ? "bg-primary text-white shadow-[var(--glow-primary)]" : "text-foreground hover:bg-white/5"}`}
-                                    title="Spark AI"
-                                >
-                                    <Sparkles size={20} />
-                                </button>
+                                        <button
+                                            onClick={() => setSidebarOpen(v => !v)}
+                                            className={`p-2 rounded-full transition ${isSidebarOpen ? "bg-primary text-white shadow-[var(--glow-primary)]" : "text-foreground hover:bg-white/5"}`}
+                                            title="Spark AI"
+                                        >
+                                            <Sparkles size={20} />
+                                        </button>
 
-                                {/* Three-dots Settings */}
-                                <div className="relative" ref={settingsRef}>
-                                    <button
-                                        onClick={() => setSettingsOpen(v => !v)}
-                                        className={`p-2 rounded-full transition ${settingsOpen ? "bg-white/10" : "text-muted-foreground hover:bg-white/8"}`}
-                                        title="Notebook Settings"
-                                    >
-                                        <MoreHorizontal size={20} />
-                                    </button>
-
-                                    {settingsOpen && (
-                                        <div className="absolute top-full right-0 mt-2 w-80 bg-card border border-border/40 rounded-2xl shadow-2xl z-50 p-4 space-y-4 animate-in fade-in slide-in-from-top-2">
-                                            <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">⚙️ Notebook Settings</h3>
-
-                                            <div className="space-y-1.5">
-                                                <label className="text-xs text-muted-foreground flex items-center gap-1"><AlignLeft size={11} /> Description</label>
-                                                <textarea
-                                                    className="w-full bg-background/50 border border-border/40 rounded-xl px-3 py-2 text-sm text-foreground resize-none focus:outline-none focus:border-primary/50 transition"
-                                                    rows={2}
-                                                    placeholder="What is this notebook about?"
-                                                    value={editDescription}
-                                                    onChange={e => setEditDescription(e.target.value)}
-                                                />
-                                            </div>
-
-                                            <div className="space-y-1.5">
-                                                <label className="text-xs text-muted-foreground flex items-center gap-1"><Tag size={11} /> Tags (comma-separated)</label>
-                                                <input
-                                                    type="text"
-                                                    className="w-full bg-background/50 border border-border/40 rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50 transition"
-                                                    placeholder="math, calculus, physics..."
-                                                    value={editTags}
-                                                    onChange={e => setEditTags(e.target.value)}
-                                                />
-                                                <div className="flex flex-wrap gap-1 pt-1">
-                                                    {editTags.split(",").map(t => t.trim()).filter(Boolean).map(tag => (
-                                                        <span key={tag} className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] rounded-full border border-primary/20">{tag}</span>
-                                                    ))}
-                                                </div>
-                                            </div>
-
-                                            <div className="flex items-center justify-between py-2 border-t border-border/20">
-                                                <div>
-                                                    <p className="text-sm font-medium text-foreground">Community Visibility</p>
-                                                    <p className="text-xs text-muted-foreground">{notebook?.isPublic ? "Visible to everyone" : "Private — only you"}</p>
-                                                </div>
-                                                <button
-                                                    onClick={handleTogglePrivacy}
-                                                    className={`relative w-12 h-6 rounded-full transition-colors ${notebook?.isPublic ? "bg-green-500" : "bg-muted"}`}
-                                                >
-                                                    <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${notebook?.isPublic ? "right-1" : "left-1"}`} />
-                                                </button>
-                                            </div>
-
+                                        {/* Three-dots Settings */}
+                                        <div className="relative" ref={settingsRef}>
                                             <button
-                                                onClick={handleSaveSettings}
-                                                disabled={savingSettings}
-                                                className="w-full bg-primary hover:bg-primary/80 text-white rounded-xl py-2 text-sm font-semibold transition shadow-[var(--glow-primary)] disabled:opacity-50"
+                                                onClick={() => setSettingsOpen(v => !v)}
+                                                className={`p-2 rounded-full transition ${settingsOpen ? "bg-white/10" : "text-muted-foreground hover:bg-white/8"}`}
+                                                title="Notebook Settings"
                                             >
-                                                {savingSettings ? "Saving..." : "Save Settings"}
+                                                <MoreHorizontal size={20} />
                                             </button>
+
+                                            {settingsOpen && (
+                                                <div className="absolute top-full right-0 mt-2 w-80 bg-card border border-border/40 rounded-2xl shadow-2xl z-50 p-4 space-y-4 animate-in fade-in slide-in-from-top-2">
+                                                    <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">⚙️ Notebook Settings</h3>
+
+                                                    <div className="space-y-1.5">
+                                                        <label className="text-xs text-muted-foreground flex items-center gap-1"><AlignLeft size={11} /> Description</label>
+                                                        <textarea
+                                                            className="w-full bg-background/50 border border-border/40 rounded-xl px-3 py-2 text-sm text-foreground resize-none focus:outline-none focus:border-primary/50 transition"
+                                                            rows={2}
+                                                            placeholder="What is this notebook about?"
+                                                            value={editDescription}
+                                                            onChange={e => setEditDescription(e.target.value)}
+                                                        />
+                                                    </div>
+
+                                                    <div className="space-y-1.5">
+                                                        <label className="text-xs text-muted-foreground flex items-center gap-1"><Tag size={11} /> Tags (comma-separated)</label>
+                                                        <input
+                                                            type="text"
+                                                            className="w-full bg-background/50 border border-border/40 rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50 transition"
+                                                            placeholder="math, calculus, physics..."
+                                                            value={editTags}
+                                                            onChange={e => setEditTags(e.target.value)}
+                                                        />
+                                                        <div className="flex flex-wrap gap-1 pt-1">
+                                                            {editTags.split(",").map(t => t.trim().toLowerCase()).filter(Boolean).map((tag, i) => (
+                                                                <span key={`${tag}-${i}`} className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] rounded-full border border-primary/20">{tag}</span>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center justify-between py-2 border-t border-border/20">
+                                                        <div>
+                                                            <p className="text-sm font-medium text-foreground">Community Visibility</p>
+                                                            <p className="text-xs text-muted-foreground">{notebook?.isPublic ? "Visible to everyone" : "Private — only you"}</p>
+                                                        </div>
+                                                        <button
+                                                            onClick={handleTogglePrivacy}
+                                                            className={`relative w-12 h-6 rounded-full transition-colors ${notebook?.isPublic ? "bg-green-500" : "bg-muted"}`}
+                                                        >
+                                                            <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${notebook?.isPublic ? "right-1" : "left-1"}`} />
+                                                        </button>
+                                                    </div>
+
+                                                    <button
+                                                        onClick={handleSaveSettings}
+                                                        disabled={savingSettings}
+                                                        className="w-full bg-primary hover:bg-primary/80 text-white rounded-xl py-2 text-sm font-semibold transition shadow-[var(--glow-primary)] disabled:opacity-50"
+                                                    >
+                                                        {savingSettings ? "Saving..." : "Save Settings"}
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
-                                    )}
-                                </div>
+                                    </>
+                                )}
                             </div>
                         </header>
 
