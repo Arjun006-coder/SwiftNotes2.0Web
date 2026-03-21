@@ -4,7 +4,7 @@ import { Plus, Settings, PlayCircle, BrainCircuit, Sparkles, Loader2 } from "luc
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useState } from "react";
-import { getNotebooks, createNotebook, deleteNotebook, getNotebookIdByOTP } from "@/app/actions";
+import { getNotebooks, createNotebook, deleteNotebook, getNotebookIdByOTP, getFavoriteNotebooks } from "@/app/actions";
 import { cn } from "@/lib/utils";
 import { Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -12,6 +12,8 @@ import ConfirmModal from "@/components/ui/ConfirmModal";
 
 export default function ShelfPage() {
     const [notebooks, setNotebooks] = useState<any[]>([]);
+    const [favorites, setFavorites] = useState<any[]>([]);
+    const [activeTab, setActiveTab] = useState<"mine" | "favorites">("mine");
     const [loading, setLoading] = useState(true);
     const [isCreating, setIsCreating] = useState(false);
     const [newTitle, setNewTitle] = useState("");
@@ -22,8 +24,12 @@ export default function ShelfPage() {
 
     useEffect(() => {
         async function load() {
-            const data = await getNotebooks();
+            const [data, favData] = await Promise.all([
+                getNotebooks(),
+                getFavoriteNotebooks()
+            ]);
             setNotebooks(data);
+            setFavorites(favData);
             setLoading(false);
         }
         load();
@@ -154,12 +160,32 @@ export default function ShelfPage() {
 
                     {/* Notebooks Grid */}
                     <section className="animate-in fade-in slide-in-from-bottom-8 duration-700 delay-150">
-                        <h2 className="text-lg font-medium text-muted-foreground mb-4">All Notebooks</h2>
+                        <div className="flex items-center gap-4 mb-6">
+                            <button
+                                onClick={() => setActiveTab("mine")}
+                                className={cn(
+                                    "text-lg font-medium transition-all pb-1 border-b-2",
+                                    activeTab === "mine" ? "text-foreground border-primary" : "text-muted-foreground border-transparent hover:text-foreground"
+                                )}
+                            >
+                                All Notebooks
+                            </button>
+                            <button
+                                onClick={() => setActiveTab("favorites")}
+                                className={cn(
+                                    "text-lg font-medium transition-all pb-1 border-b-2",
+                                    activeTab === "favorites" ? "text-foreground border-primary" : "text-muted-foreground border-transparent hover:text-foreground"
+                                )}
+                            >
+                                Favorites
+                            </button>
+                        </div>
+                        
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-                            {notebooks.map((session, i) => (
-                                <NotebookCard key={session.id} session={session} index={i} onDelete={(e) => promptDelete(session.id, e)} />
+                            {(activeTab === "mine" ? notebooks : favorites).map((session, i) => (
+                                <NotebookCard key={session.id} session={session} index={i} onDelete={(e) => promptDelete(session.id, e)} hideDelete={activeTab === "favorites"} />
                             ))}
-                            {notebooks.length === 0 && !isCreating && (
+                            {activeTab === "mine" && notebooks.length === 0 && !isCreating && (
                                 <div className="col-span-full py-20 text-center glass-card rounded-3xl border-dashed">
                                     <p className="text-muted-foreground mb-4">You haven't created any notebooks yet.</p>
                                     <button
@@ -168,6 +194,14 @@ export default function ShelfPage() {
                                     >
                                         Create your first one below
                                     </button>
+                                </div>
+                            )}
+                            {activeTab === "favorites" && favorites.length === 0 && (
+                                <div className="col-span-full py-20 text-center glass-card rounded-3xl border-dashed">
+                                    <p className="text-muted-foreground mb-4">You haven't bookmarked any notebooks yet.</p>
+                                    <Link href="/dashboard/community" className="text-primary font-bold hover:underline">
+                                        Explore the Community Hub
+                                    </Link>
                                 </div>
                             )}
                         </div>
@@ -209,7 +243,7 @@ export default function ShelfPage() {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function NotebookCard({ session, index, onDelete }: { session: any, index: number, onDelete: (e: React.MouseEvent) => void }) {
+function NotebookCard({ session, index, onDelete, hideDelete }: { session: any, index: number, onDelete: (e: React.MouseEvent) => void, hideDelete?: boolean }) {
     const isGradient = session.coverColor?.startsWith("from-");
     const router = useRouter();
     const tags: string[] = session.tags || [];
@@ -251,12 +285,14 @@ function NotebookCard({ session, index, onDelete }: { session: any, index: numbe
                 )}
 
                 {/* Delete Button */}
-                <button
-                    onClick={onDelete}
-                    className="absolute top-4 right-4 z-20 p-2 bg-red-500/80 hover:bg-red-600 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-lg backdrop-blur-md"
-                >
-                    <Trash2 size={16} />
-                </button>
+                {!hideDelete && (
+                    <button
+                        onClick={onDelete}
+                        className="absolute top-4 right-4 z-20 p-2 bg-red-500/80 hover:bg-red-600 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-lg backdrop-blur-md"
+                    >
+                        <Trash2 size={16} />
+                    </button>
+                )}
 
                 <div className="z-10 flex w-full justify-between items-center mt-auto">
                     <p className="text-white/60 text-[10px]">

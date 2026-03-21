@@ -15,6 +15,7 @@ interface VideoPanelProps {
     onTranscriptsUpdate: (transcripts: { videoId: string; title: string; text: string }[]) => void;
     onTimestampSnap: (videoId: string, videoUrl: string, seconds: number, label: string, frameBase64?: string | null) => void;
     seekVideoRef?: React.MutableRefObject<((videoId: string, seconds: number) => void) | null>;
+    canAddVideos?: boolean;
 }
 
 function extractVideoId(url: string): string {
@@ -33,7 +34,7 @@ function fmtTime(secs: number) {
 
 export default function VideoPanel({
     notebookId, videos, isOpen, onToggle,
-    onVideosChange, onTranscriptsUpdate, onTimestampSnap, seekVideoRef,
+    onVideosChange, onTranscriptsUpdate, onTimestampSnap, seekVideoRef, canAddVideos
 }: VideoPanelProps) {
     const [showList, setShowList] = useState(true);
     const [newUrl, setNewUrl] = useState("");
@@ -126,7 +127,7 @@ export default function VideoPanel({
     }, [activeVideoId]); // eslint-disable-line
 
     const handleAddVideo = async () => {
-        if (!newUrl.trim()) return;
+        if (!canAddVideos || !newUrl.trim()) return;
         setAddingVideo(true); setAddError("");
         try {
             const videoId = extractVideoId(newUrl.trim());
@@ -145,6 +146,7 @@ export default function VideoPanel({
     };
 
     const handleRemoveVideo = async (videoId: string) => {
+        if (!canAddVideos) return;
         try {
             await removeNotebookVideo(notebookId, videoId);
             onVideosChange();
@@ -260,32 +262,36 @@ export default function VideoPanel({
                                 )}
                             </div>
                             {activeVideoId === v.videoId && <Check size={12} className="text-primary shrink-0" />}
-                            <button
-                                className="p-1 rounded-full text-white/20 hover:text-red-400 hover:bg-red-400/10 opacity-0 group-hover:opacity-100 transition shrink-0 ml-1"
-                                onClick={e => { e.stopPropagation(); handleRemoveVideo(v.videoId); }}
-                                title="Remove"
-                            ><X size={11} /></button>
+                            {canAddVideos && (
+                                <button
+                                    className="p-1 rounded-full text-white/20 hover:text-red-400 hover:bg-red-400/10 opacity-0 group-hover:opacity-100 transition shrink-0 ml-1"
+                                    onClick={e => { e.stopPropagation(); handleRemoveVideo(v.videoId); }}
+                                    title="Remove"
+                                ><X size={11} /></button>
+                            )}
                         </div>
                     ))}
 
                     {/* Add video row */}
-                    <div className="p-3 flex gap-2">
-                        <input
-                            type="text"
-                            placeholder="Paste YouTube URL..."
-                            value={newUrl}
-                            onChange={e => setNewUrl(e.target.value)}
-                            onKeyDown={e => { if (e.key === "Enter") handleAddVideo(); }}
-                            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-white/25 outline-none focus:border-red-400/50 transition"
-                        />
-                        <button
-                            onClick={handleAddVideo}
-                            disabled={addingVideo || !newUrl.trim()}
-                            className="px-3 py-2 bg-red-500 hover:bg-red-600 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition shrink-0"
-                        >
-                            {addingVideo ? <Loader2 size={12} className="animate-spin" /> : <Plus size={13} />}
-                        </button>
-                    </div>
+                    {canAddVideos && (
+                        <div className="p-3 flex gap-2">
+                            <input
+                                type="text"
+                                placeholder="Paste YouTube URL..."
+                                value={newUrl}
+                                onChange={e => setNewUrl(e.target.value)}
+                                onKeyDown={e => { if (e.key === "Enter") handleAddVideo(); }}
+                                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-white/25 outline-none focus:border-red-400/50 transition"
+                            />
+                            <button
+                                onClick={handleAddVideo}
+                                disabled={addingVideo || !newUrl.trim()}
+                                className="px-3 py-2 bg-red-500 hover:bg-red-600 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition shrink-0"
+                            >
+                                {addingVideo ? <Loader2 size={12} className="animate-spin" /> : <Plus size={13} />}
+                            </button>
+                        </div>
+                    )}
                     {addError && <p className="text-red-400 text-[10px] px-3 pb-2">{addError}</p>}
                 </div>
             )}

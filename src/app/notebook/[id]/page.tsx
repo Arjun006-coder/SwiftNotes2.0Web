@@ -11,7 +11,7 @@ import dynamic from "next/dynamic";
 const PageFlipEngine = dynamic(() => import("@/components/notebook/PageFlipEngine"), { ssr: false });
 import AISidebar from "@/components/notebook/AISidebar";
 import VideoPanel, { VideoEntry } from "@/components/notebook/VideoPanel";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import {
     getNotebook, updateNotePageContent, updateNotePageDrawing, createNotePage,
     updateSnapPosition, deleteNotePage, createSnap, toggleNotebookPrivacy,
@@ -177,6 +177,8 @@ function parseVideos(raw: string[] | null | undefined): VideoEntry[] {
 
 export default function NotebookView() {
     const { id } = useParams();
+    const searchParams = useSearchParams();
+    const isOtpJoin = !!searchParams.get("otp");
     const { user } = useUser();
     const [notebook, setNotebook] = useState<any>(null);
     const [loading, setLoading] = useState(true);
@@ -236,7 +238,8 @@ export default function NotebookView() {
             }
             // Execute Access Control Evaluation
             const access = await checkNotebookAccess(id as string);
-            setCanEdit(access.isOwner || access.isCollaborator);
+            // STRICT SECURITY ENFORCEMENT: Even if DB somehow returns true, unless user has the ephemeral ?otp code in URL they are forced into ReadOnly.
+            setCanEdit(access.isOwner || (access.isCollaborator && isOtpJoin));
 
             // Determine if they previously clicked "Ask to Edit" and are still waiting
             if (!access.isOwner && !access.isCollaborator && user?.id) {
@@ -495,7 +498,11 @@ export default function NotebookView() {
                                     </button>
                                 </div>
                             ) : (
-                                <AskToEditButton notebookId={notebook.id} hasRequested={hasPendingRequest} />
+                                isOtpJoin && !hasPendingRequest && (
+                                    <div className="flex justify-center bg-black/20 backdrop-blur-md rounded-full p-1 border border-white/5 mx-auto">
+                                        <AskToEditButton notebookId={notebook.id} hasRequested={hasPendingRequest} />
+                                    </div>
+                                )
                             )}
 
                             {/* Right: Tools */}
@@ -539,6 +546,15 @@ export default function NotebookView() {
                                     )}
                                 </button>
 
+                                {/* Spark AI button — Accessible to everyone */}
+                                <button
+                                    onClick={() => setSidebarOpen(v => !v)}
+                                    className={`p-2 rounded-full transition ${isSidebarOpen ? "bg-primary text-white shadow-[var(--glow-primary)]" : "text-foreground hover:bg-white/5"}`}
+                                    title="Spark AI"
+                                >
+                                    <Sparkles size={20} />
+                                </button>
+
                                 {canEdit && (
                                     <>
                                         <button
@@ -568,14 +584,6 @@ export default function NotebookView() {
                                         </button>
                                         <button onClick={promptDeletePage} className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full transition" title="Delete Page">
                                             <Trash2 size={20} />
-                                        </button>
-
-                                        <button
-                                            onClick={() => setSidebarOpen(v => !v)}
-                                            className={`p-2 rounded-full transition ${isSidebarOpen ? "bg-primary text-white shadow-[var(--glow-primary)]" : "text-foreground hover:bg-white/5"}`}
-                                            title="Spark AI"
-                                        >
-                                            <Sparkles size={20} />
                                         </button>
 
                                         {/* Three-dots Settings */}
@@ -660,22 +668,24 @@ export default function NotebookView() {
                                     onSeekTo={(seconds) => handleSeekTo(seconds)}
                                     onSnapSeek={handleSnapSeek}
                                     onFlip={(idx) => setCurrentPageIndex(idx)}
+                                    readOnly={!canEdit}
                                 />
                             )}
                         </main>
 
                         {/* ═══ VIDEO PANEL ═══ */}
                         {mounted && (
-                            <VideoPanel
-                                notebookId={notebook?.id || ""}
-                                videos={videos}
-                                onVideosChange={refreshNotebook}
-                                onTranscriptsUpdate={setVideoTranscripts}
-                                onTimestampSnap={handleTimestampSnap}
-                                seekVideoRef={seekVideoRef}
-                                isOpen={videoPanelOpen}
-                                onToggle={() => setVideoPanelOpen(v => !v)}
-                            />
+                                <VideoPanel
+                                    notebookId={notebook?.id || ""}
+                                    videos={videos}
+                                    onVideosChange={refreshNotebook}
+                                    onTranscriptsUpdate={setVideoTranscripts}
+                                    onTimestampSnap={handleTimestampSnap}
+                                    seekVideoRef={seekVideoRef}
+                                    isOpen={videoPanelOpen}
+                                    onToggle={() => setVideoPanelOpen(v => !v)}
+                                    canAddVideos={canEdit}
+                                />
                         )}
 
                         {/* ═══ AI SIDEBAR ═══ */}
@@ -687,6 +697,7 @@ export default function NotebookView() {
                             videoTranscripts={videoTranscripts}
                             notebookId={notebook?.id}
                             onAINotesUpdated={refreshNotebook}
+                            readOnly={!canEdit}
                         />
 
                         <ConfirmModal

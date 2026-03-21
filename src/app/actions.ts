@@ -349,22 +349,51 @@ export async function getCommunityNotebooks(search: string = "", tagFilters: str
 
         query = query.limit(50);
 
-        // Text search across title and description
-        if (search.trim()) {
-            query = query.or(
-                `title.ilike.%${search.trim()}%,description.ilike.%${search.trim()}%`
-            );
-        }
-
-        // Tag filter (array overlaps) - Matches if notebook has ANY of the provided tagFilters
-        // Remove "All" from the array if it exists
         const actualTags = tagFilters.filter(t => t && t !== "All");
-        if (actualTags.length > 0) {
-            query = query.overlaps("tags", actualTags);
+
+        // Advanced Semantic Search: Combine Text & Tag Search into a SINGLE massive OR clause
+        // so that a notebook matching the AI-mapped tags is included even if the title misses the exact string.
+        if (search.trim() || actualTags.length > 0) {
+            let orQueries = [];
+
+            if (search.trim()) {
+                const safeSearch = search.trim().replace(/,/g, ' '); // Strip commas which break Postgrest .or()
+                orQueries.push(`title.ilike.%${safeSearch}%`);
+                orQueries.push(`description.ilike.%${safeSearch}%`);
+            }
+
+            if (actualTags.length > 0) {
+                // Format for Postgrest array overlaps inside OR: tags.ov.{"tag1","tag 2"}
+                const safeTags = actualTags.map(t => `"${t.replace(/"/g, '')}"`).join(',');
+                orQueries.push(`tags.ov.{${safeTags}}`);
+            }
+
+            query = query.or(orQueries.join(','));
         }
 
         const { data, error } = await query;
         if (error) throw error;
+        
+        // Hydrate personal interactions if user is logged in
+        const dbUser = await syncUser();
+        if (dbUser && data && data.length > 0) {
+            const notebookIds = data.map((n: any) => n.id);
+            
+            // 1. Fetch Bookmarks
+            const { data: favs } = await supabaseAdmin.from("UserFavorite").select("notebookId").eq("userId", dbUser.id).in("notebookId", notebookIds);
+            const favSet = new Set(favs?.map(f => f.notebookId) || []);
+            
+            // 2. Fetch Votes
+            const { data: votes } = await supabaseAdmin.from("NotebookVote").select("notebookId, value").eq("userId", dbUser.id).in("notebookId", notebookIds);
+            const voteMap = new Map((votes || []).map(v => [v.notebookId, v.value]));
+
+            return data.map((nb: any) => ({
+                ...nb,
+                isBookmarked: favSet.has(nb.id),
+                myVote: voteMap.get(nb.id) || 0
+            }));
+        }
+
         return data;
     } catch (error: any) {
         console.error("Community fetch error:", error.message);
@@ -636,6 +665,31 @@ export async function getUserStats() {
     return stats;
 }
 
+export async function getFavoriteNotebooks() {
+    const dbUser = await syncUser();
+    if (!dbUser) return [];
+
+    const { data, error } = await supabaseAdmin
+        .from("UserFavorite")
+        .select(`
+            notebookId,
+            notebook:Notebook(
+                id, title, description, tags, likes, "isPublic",
+                "coverColor", "createdAt", "updatedAt", "userId"
+            )
+        `)
+        .eq("userId", dbUser.id)
+        .order("createdAt", { ascending: false });
+
+    if (error) {
+        console.error("Failed to fetch favorites:", error.message);
+        return [];
+    }
+
+    // Extract the nested structured notebook objects
+    return data.map((fav: any) => fav.notebook).filter(Boolean);
+}
+
 export async function getNotebookIdByOTP(otp: string) {
     if (!otp || otp.length < 6) return null;
     const { data } = await supabaseAdmin
@@ -678,9 +732,9 @@ export async function toggleBookmark(notebookId: string, isBookmarked: boolean) 
     if (!dbUser) throw new Error("Unauthorized");
 
     if (isBookmarked) {
-        await supabaseAdmin.from("UserFavorite").delete().eq("notebookId", notebookId).eq("userId", dbUser.id);
-    } else {
         await supabaseAdmin.from("UserFavorite").upsert({ notebookId, userId: dbUser.id }, { onConflict: "notebookId,userId" });
+    } else {
+        await supabaseAdmin.from("UserFavorite").delete().eq("notebookId", notebookId).eq("userId", dbUser.id);
     }
 }
 

@@ -22,7 +22,7 @@ const TABS = [
     { id: "visualize",  label: "Mind Map",    icon: Network },
 ];
 
-export default function AISidebar({ isOpen, onClose, notebookText, videos: rawVideos, videoTranscripts, notebookId, onAINotesUpdated }: {
+export default function AISidebar({ isOpen, onClose, notebookText, videos: rawVideos, videoTranscripts, notebookId, onAINotesUpdated, readOnly }: {
     isOpen: boolean;
     onClose: () => void;
     notebookText?: string;
@@ -30,6 +30,7 @@ export default function AISidebar({ isOpen, onClose, notebookText, videos: rawVi
     videoTranscripts?: { videoId: string; title: string; text: string }[];
     notebookId?: string;
     onAINotesUpdated?: () => void;
+    readOnly?: boolean;
 }) {
     // Step 1: pick a video. Step 2: use AI tabs
     const [step, setStep] = useState<"pick" | "ai">("pick");
@@ -503,7 +504,9 @@ export default function AISidebar({ isOpen, onClose, notebookText, videos: rawVi
                                     <div className="space-y-2">
                                         <div className="flex items-center justify-between mb-3">
                                             <span className="text-xs text-green-400 font-medium">Ready</span>
-                                            <button onClick={() => { if (selectedVideoId) setCache(prev => ({ ...prev, [selectedVideoId]: { ...prev[selectedVideoId], [activeTab]: undefined as any } })); handleTabClick(activeTab); }} className="text-xs text-muted-foreground hover:text-white transition">Regenerate</button>
+                                            {!readOnly && (
+                                                <button onClick={() => { if (selectedVideoId) setCache(prev => ({ ...prev, [selectedVideoId]: { ...prev[selectedVideoId], [activeTab]: undefined as any } })); handleTabClick(activeTab); }} className="text-xs text-muted-foreground hover:text-white transition">Regenerate</button>
+                                            )}
                                         </div>
                                         <div className="text-white/85 text-sm leading-relaxed whitespace-pre-wrap bg-white/3 rounded-2xl p-4 border border-white/5">{getCached(activeTab)}</div>
                                     </div>
@@ -517,29 +520,34 @@ export default function AISidebar({ isOpen, onClose, notebookText, videos: rawVi
                                             <p className="text-sm font-semibold text-white/80 mb-1">Generate {selectedVideo ? "Full AI Pipeline" : TABS.find(t => t.id === activeTab)?.label}</p>
                                             <p className="text-xs">{selectedVideo ? `Extract topics, facts, and structure from: ${selectedVideo?.title}` : "From your notebook notes"}</p>
                                         </div>
-                                        {selectedVideo ? (
-                                            <button 
-                                                onClick={handleGenerateVideoKnowledge} 
-                                                disabled={generatingAll || fetchingTranscript}
-                                                className="px-7 py-2.5 rounded-full bg-primary hover:bg-primary/80 text-white text-sm font-semibold shadow-[0_0_20px_rgba(139,92,246,0.3)] transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                                            >
-                                                {generatingAll ? <><div className="w-3.5 h-3.5 border-2 border-white/80 border-t-transparent rounded-full animate-spin" /> Chunking Pipeline...</> : "Generate AI Analysis"}
-                                            </button>
+                                        {!readOnly ? (
+                                            selectedVideo ? (
+                                                <button 
+                                                    onClick={handleGenerateVideoKnowledge} 
+                                                    disabled={generatingAll || fetchingTranscript}
+                                                    className="px-7 py-2.5 rounded-full bg-primary hover:bg-primary/80 text-white text-sm font-semibold shadow-[0_0_20px_rgba(139,92,246,0.3)] transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                                >
+                                                    {generatingAll ? <><div className="w-3.5 h-3.5 border-2 border-white/80 border-t-transparent rounded-full animate-spin" /> Chunking Pipeline...</> : "Generate AI Analysis"}
+                                                </button>
+                                            ) : (
+                                                <button 
+                                                    onClick={() => handleTabClick(activeTab)} 
+                                                    className="px-7 py-2.5 rounded-full bg-primary hover:bg-primary/80 text-white text-sm font-semibold shadow-[0_0_20px_rgba(139,92,246,0.3)] transition"
+                                                >
+                                                    Generate {TABS.find(t => t.id === activeTab)?.label}
+                                                </button>
+                                            )
                                         ) : (
-                                            <button 
-                                                onClick={() => handleTabClick(activeTab)} 
-                                                className="px-7 py-2.5 rounded-full bg-primary hover:bg-primary/80 text-white text-sm font-semibold shadow-[0_0_20px_rgba(139,92,246,0.3)] transition"
-                                            >
-                                                Generate {TABS.find(t => t.id === activeTab)?.label}
-                                            </button>
+                                            <div className="text-[11px] text-white/50 bg-white/5 border border-white/10 px-4 py-2 rounded-xl mt-2 text-center max-w-[200px]">
+                                                Only authorized editors can generate AI pipelines.
+                                            </div>
                                         )}
                                     </div>
                                 )}
                             </div>
 
-
                             {/* Chat input — only for Q&A tab */}
-                            {activeTab === "qna" && (
+                            {activeTab === "qna" && !readOnly && (
                                 <div className="p-4 bg-black/30 border-t border-white/8 shrink-0">
                                     <div className="relative flex items-center">
                                         <input

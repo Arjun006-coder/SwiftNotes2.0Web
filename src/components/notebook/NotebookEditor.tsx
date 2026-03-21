@@ -114,20 +114,28 @@ function EditorInner({ doc, provider, content, onUpdate, isReadOnly, pageId, use
                     editor.commands.setContent(content);
                 }
             }
+            // BEWARE: TipTap Collaboration natively forces the editor to editable=true once connected!
+            // We MUST aggressively clamp it back down to false if the user is a Viewer.
+            editor.setEditable(!isReadOnly);
         };
+        
         provider.on('synced', handleSync);
         if (provider.isSynced) handleSync();
         return () => { provider.off('synced', handleSync); };
-    }, [editor, provider, content])
+    }, [editor, provider, content, isReadOnly])
 
     useEffect(() => { if (editor) editor.setEditable(!isReadOnly) }, [isReadOnly, editor])
 
     useEffect(() => {
         if (editor) {
             const el = editor.view.dom as HTMLElement;
-            if (el) el.style.fontSize = fontSize;
+            if (el) {
+                el.style.fontSize = fontSize;
+                // Double-down protection against keyboard Tab focus
+                if (isReadOnly) el.setAttribute("contenteditable", "false");
+            }
         }
-    }, [fontSize, editor])
+    }, [fontSize, editor, isReadOnly])
 
     // The entire component is pointer-events:auto when editable.
     // Each interactive element explicitly sets pointerEvents via style to avoid CSS cascade issues.
