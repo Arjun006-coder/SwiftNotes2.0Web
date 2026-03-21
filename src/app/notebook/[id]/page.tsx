@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
     ChevronLeft, Pencil, Image as ImageIcon, FileText, Mic, Plus,
     MoreHorizontal, Trash2, Globe, Youtube, Users, Sparkles,
-    Tag, AlignLeft, Lock, Unlock
+    Tag, AlignLeft, Lock, Unlock, Copy, Shield, ShieldAlert, Check, X
 } from "lucide-react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -15,7 +15,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import {
     getNotebook, updateNotePageContent, updateNotePageDrawing, createNotePage,
     updateSnapPosition, deleteNotePage, createSnap, toggleNotebookPrivacy,
-    updateNotebook, checkNotebookAccess, getPendingRoomRequests,
+    updateNotebook, checkNotebookAccess, getAllRoomRequests,
     requestEditAccess, approveEditAccess, rejectEditAccess, revokeEditAccess
 } from "@/app/actions";
 import { LiveblocksProvider, RoomProvider, ClientSideSuspense, useOthers, useBroadcastEvent, useEventListener, useSelf, useRoom } from "@liveblocks/react/suspense";
@@ -57,45 +57,49 @@ function ActiveUsers({ isPublic }: { isPublic: boolean }) {
 }
 
 // --- LIVEROOM EPHEMERAL EVENT MANAGER ---
-function RoomEventManager({ notebookId, isOwner }: { notebookId: string; isOwner: boolean }) {
-    const broadcast = useBroadcastEvent();
+function GuestEventReceiver() {
     const self = useSelf();
-    const room = useRoom();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [pending, setPending] = useState<any[]>([]);
-    const [showRequests, setShowRequests] = useState(false);
-
-    const loadRequests = useCallback(async () => {
-        if (!isOwner) return;
-        const reqs = await getPendingRoomRequests(notebookId);
-        setPending(reqs);
-    }, [isOwner, notebookId]);
-
-    useEffect(() => { loadRequests(); }, [loadRequests]);
-
-    // WebSocket Listeners
     useEventListener(({ event }) => {
         const e = event as Record<string, any>;
-        if (e.type === "REQUEST_ACCESS" && isOwner) {
-            loadRequests();
-        } else if (e.type === "ACCESS_GRANTED" && e.userId === self.id) {
+        if (e.type === "ACCESS_GRANTED" && e.userId === self.id) {
             alert("The Notebook Owner granted you Temporary Edit Access!");
             window.location.reload(); // Re-authenticates JWT to inject FULL_ACCESS
         } else if (e.type === "ACCESS_REJECTED" && e.userId === self.id) {
             alert("Your request to edit was declined.");
+            // Status re-render handled passively or requires manual window reload if pending is locally cached
+        } else if (e.type === "ACCESS_REVOKED" && e.userId === self.id) {
+            alert("Your edit access was revoked by the Owner.");
+            window.location.reload();
         }
     });
+    return null;
+}
 
-    // Auto-Purge Presence Matrix 
-    // Triggers explicitly when guests close their tabs or drift offline
-    useEffect(() => {
+function LiveRoomManager({ notebookId, isOwner, otp }: { notebookId: string; isOwner: boolean; otp: string }) {
+    const broadcast = useBroadcastEvent();
+    const self = useSelf();
+    const room = useRoom();
+    const others = useOthers();
+    const [requests, setRequests] = useState<any[]>([]);
+    const [isOpen, setIsOpen] = useState(false);
+    const [copied, setCopied] = useState(false);
+
+    const loadRequests = useCallback(async () => {
         if (!isOwner) return;
-        return room.subscribe("others", (others, event) => {
-            if (event.type === "leave" && event.user?.id) {
-                revokeEditAccess(notebookId, event.user.id).catch(console.error);
-            }
-        });
-    }, [room, isOwner, notebookId]);
+        const reqs = await getAllRoomRequests(notebookId);
+        setRequests(reqs);
+    }, [isOwner, notebookId]);
+
+    useEffect(() => { loadRequests(); }, [loadRequests]);
+
+    // WebSocket Listeners for the Host
+    useEventListener(({ event }) => {
+        const e = event as Record<string, any>;
+        if (e.type === "REQUEST_ACCESS" && isOwner) {
+            alert(`${e.name || "A guest"} is asking for Edit Access! Check your Live Room Manager.`);
+            loadRequests();
+        }
+    });
 
     const handleApprove = async (userId: string) => {
         await approveEditAccess(notebookId, userId);
@@ -109,32 +113,111 @@ function RoomEventManager({ notebookId, isOwner }: { notebookId: string; isOwner
         loadRequests();
     };
 
-    if (!isOwner || pending.length === 0) return null;
+    const handleRevoke = async (userId: string) => {
+        await revokeEditAccess(notebookId, userId);
+        broadcast({ type: "ACCESS_REVOKED", userId });
+        loadRequests();
+    };
+
+    const handleCopy = () => {
+        navigator.clipboard.writeText(otp);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    if (!isOwner) return null;
+
+    const pending = requests.filter(r => r.status === "pending");
+    const approvedMap = new Set(requests.filter(r => r.status === "approved").map(r => r.userId));
 
     return (
         <div className="relative z-50">
             <button
-                onClick={() => setShowRequests(v => !v)}
-                className="relative p-2 text-primary hover:bg-primary/10 rounded-full transition shadow-lg border border-primary/20"
-                title="Pending Requests"
+                onClick={() => setIsOpen(v => !v)}
+                className={`relative p-2 rounded-full transition shadow-sm ${isOpen ? "bg-primary/20 text-primary border border-primary/30" : "text-primary hover:bg-primary/10 border border-transparent"}`}
+                title="Live Room Manager"
             >
-                👥 <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center animate-bounce">{pending.length}</span>
+                <Users size={18} />
+                {pending.length > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center animate-bounce shadow-md">{pending.length}</span>}
+                {pending.length === 0 && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-sm" />}
             </button>
-            {showRequests && (
-                <div className="absolute top-full right-0 mt-2 w-64 bg-card border border-border/40 rounded-xl shadow-2xl z-50 p-2 space-y-2 animate-in fade-in slide-in-from-top-2">
-                    <h4 className="text-xs font-semibold text-muted-foreground px-2 pt-1">Requests to Edit</h4>
-                    {pending.map(p => (
-                        <div key={p.userId} className="flex flex-col gap-2 p-2 bg-background/50 rounded-lg border border-border/30">
-                            <div className="flex items-center gap-2">
-                                {p.User.imageUrl ? <img src={p.User.imageUrl} className="w-5 h-5 rounded-full" /> : <div className="w-5 h-5 rounded-full bg-primary/20" />}
-                                <span className="text-sm font-medium truncate">{p.User.fullName || "User"}</span>
-                            </div>
-                            <div className="flex gap-1">
-                                <button onClick={() => handleApprove(p.userId)} className="flex-1 bg-green-500/20 text-green-500 hover:bg-green-500/30 py-1 rounded-md text-xs font-semibold transition">Approve</button>
-                                <button onClick={() => handleReject(p.userId)} className="flex-1 bg-red-500/20 text-red-500 hover:bg-red-500/30 py-1 rounded-md text-xs font-semibold transition">Reject</button>
+            
+            {isOpen && (
+                <div className="absolute top-12 right-0 w-80 bg-card/95 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 origin-top-right">
+                    <div className="p-3 bg-primary/5 border-b border-border/30 flex items-center justify-between">
+                        <h3 className="font-semibold text-xs text-foreground flex items-center gap-2">🌐 Live Room Manager</h3>
+                    </div>
+
+                    <div className="p-3 space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                        {/* 1. ROOM PIN */}
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Room PIN</label>
+                            <div className="flex items-center justify-between p-2.5 bg-background border border-border/40 rounded-xl">
+                                <span className="text-xl font-mono text-primary font-bold tracking-widest">{otp}</span>
+                                <button onClick={handleCopy} className={`p-1.5 rounded-md transition flex items-center gap-1.5 text-xs font-semibold ${copied ? "bg-green-500/20 text-green-500" : "bg-primary/10 hover:bg-primary/20 text-primary"}`}>
+                                    {copied ? <Check size={14} /> : <Copy size={14} />}
+                                    {copied ? "Copied" : "Copy"}
+                                </button>
                             </div>
                         </div>
-                    ))}
+
+                        {/* 2. ACTIVE PEOPLE IN ROOM */}
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider flex items-center justify-between">
+                                <span>Active Participants ({others.length})</span>
+                            </label>
+                            {others.length === 0 ? (
+                                <p className="text-xs text-muted-foreground italic p-2 text-center bg-background/30 rounded-lg border border-border/20">No one else is here yet.</p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {others.map(o => {
+                                        const isEditor = approvedMap.has(o.id);
+                                        return (
+                                            <div key={o.connectionId} className="flex items-center justify-between p-2 bg-background border border-border/40 rounded-xl">
+                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                    {o.info?.avatar ? <img src={o.info.avatar} className="w-7 h-7 rounded-full shrink-0 border border-border/50" /> : <div className="w-7 h-7 rounded-full bg-primary/20 shrink-0 border border-border/50" />}
+                                                    <div className="flex flex-col min-w-0">
+                                                        <span className="text-xs font-semibold truncate text-foreground leading-tight">{o.info?.name || "Anonymous"}</span>
+                                                        <span className={`text-[9px] font-bold ${isEditor ? "text-green-500" : "text-muted-foreground"}`}>{isEditor ? "Can Edit" : "Read Only"}</span>
+                                                    </div>
+                                                </div>
+                                                {isEditor ? (
+                                                    <button onClick={() => o.id && handleRevoke(o.id)} className="shrink-0 p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-md transition" title="Revoke Edit Access">
+                                                        <ShieldAlert size={14} />
+                                                    </button>
+                                                ) : (
+                                                    <button onClick={() => o.id && handleApprove(o.id)} className="shrink-0 p-1.5 bg-green-500/10 hover:bg-green-500/20 text-green-500 rounded-md transition" title="Grant Edit Access">
+                                                        <Shield size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 3. PENDING REQUESTS */}
+                        {pending.length > 0 && (
+                            <div className="space-y-1.5 pt-2 border-t border-border/30">
+                                <label className="text-[10px] uppercase font-bold text-red-400 tracking-wider">Needs Approval ({pending.length})</label>
+                                <div className="space-y-2">
+                                    {pending.map(p => (
+                                        <div key={p.userId} className="flex flex-col gap-2 p-2 bg-red-500/5 border border-red-500/20 rounded-xl">
+                                            <div className="flex items-center gap-2.5">
+                                                {p.User.avatar ? <img src={p.User.avatar} className="w-6 h-6 rounded-full shrink-0" /> : <div className="w-6 h-6 rounded-full bg-primary/20 shrink-0" />}
+                                                <span className="text-xs font-medium truncate text-foreground">{p.User.name || "User"}</span>
+                                            </div>
+                                            <div className="flex gap-1.5">
+                                                <button onClick={() => handleApprove(p.userId)} className="flex-1 bg-green-500 hover:bg-green-600 text-white py-1.5 rounded-lg text-[10px] font-bold transition flex justify-center items-center gap-1"><Check size={12}/> Approve</button>
+                                                <button onClick={() => handleReject(p.userId)} className="flex-1 bg-muted hover:bg-muted/80 text-foreground py-1.5 rounded-lg text-[10px] font-bold transition flex justify-center items-center gap-1"><X size={12}/> Reject</button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
         </div>
@@ -192,6 +275,7 @@ export default function NotebookView() {
     const [editTags, setEditTags] = useState("");
     const [savingSettings, setSavingSettings] = useState(false);
     const [canEdit, setCanEdit] = useState(true); // Default TRUE until DB resolves
+    const [isHost, setIsHost] = useState(false); // Validated owner state from DB
     const [hasPendingRequest, setHasPendingRequest] = useState(false);
 
     // Video panel state
@@ -238,13 +322,14 @@ export default function NotebookView() {
             }
             // Execute Access Control Evaluation
             const access = await checkNotebookAccess(id as string);
+            setIsHost(access.isOwner);
             // STRICT SECURITY ENFORCEMENT: Even if DB somehow returns true, unless user has the ephemeral ?otp code in URL they are forced into ReadOnly.
             setCanEdit(access.isOwner || (access.isCollaborator && isOtpJoin));
 
             // Determine if they previously clicked "Ask to Edit" and are still waiting
             if (!access.isOwner && !access.isCollaborator && user?.id) {
-                const reqs = await getPendingRoomRequests(id as string);
-                const amIWaiting = reqs.some((r: any) => r.userId === user?.id);
+                const reqs = await getAllRoomRequests(id as string);
+                const amIWaiting = reqs.some((r: any) => r.userId === user?.id && r.status === "pending");
                 setHasPendingRequest(amIWaiting);
             }
 
@@ -459,6 +544,7 @@ export default function NotebookView() {
                         <div className="w-12 h-12 rounded-full border-4 border-primary border-t-transparent animate-spin" />
                     </div>
                 }>
+                    <GuestEventReceiver />
                     <div className="h-screen w-full bg-background flex flex-col relative overflow-hidden">
 
                         {/* ═══ HEADER ═══ */}
@@ -478,7 +564,6 @@ export default function NotebookView() {
                                         <Globe size={9} /> Public
                                     </span>
                                 )}
-                                <RoomEventManager notebookId={notebook?.id} isOwner={notebook?.userId === user?.id} />
                             </div>
 
                             {/* Center: Mode switcher (Hidden if Read-Only) */}
@@ -498,7 +583,7 @@ export default function NotebookView() {
                                     </button>
                                 </div>
                             ) : (
-                                isOtpJoin && !hasPendingRequest && (
+                                isOtpJoin && (
                                     <div className="flex justify-center bg-black/20 backdrop-blur-md rounded-full p-1 border border-white/5 mx-auto">
                                         <AskToEditButton notebookId={notebook.id} hasRequested={hasPendingRequest} />
                                     </div>
@@ -565,17 +650,8 @@ export default function NotebookView() {
                                             {notebook?.isPublic ? <Unlock size={18} /> : <Lock size={18} />}
                                         </button>
 
-                                        <button
-                                            onClick={() => {
-                                                navigator.clipboard.writeText(otp);
-                                                alert(`Live Room Code: ${otp}\n\nCopied! Share with friends.`);
-                                            }}
-                                            className="relative p-2 text-primary hover:bg-primary/10 rounded-full transition"
-                                            title="Go Live"
-                                        >
-                                            <Users size={18} />
-                                            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                                        </button>
+                                        {/* Unified Live Room Manager */}
+                                        <LiveRoomManager notebookId={notebook?.id} isOwner={isHost} otp={otp} />
 
                                         <div className="w-px h-5 bg-border/50 mx-0.5" />
 

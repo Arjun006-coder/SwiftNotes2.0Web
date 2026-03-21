@@ -103,7 +103,7 @@ export default function ShelfPage() {
                                 setIsJoining(true);
                                 const notebookId = await getNotebookIdByOTP(otpCode);
                                 if (notebookId) {
-                                    router.push(`/notebook/${notebookId}`);
+                                    router.push(`/notebook/${notebookId}?otp=${otpCode}`);
                                 } else {
                                     alert("Room not found or expired.");
                                     setIsJoining(false);

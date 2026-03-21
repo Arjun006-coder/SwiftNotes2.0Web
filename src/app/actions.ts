@@ -575,11 +575,10 @@ export async function requestEditAccess(notebookId: string) {
     if (error) throw new Error(error.message);
 }
 
-export async function getPendingRoomRequests(notebookId: string) {
+export async function getAllRoomRequests(notebookId: string) {
     const { userId } = await auth();
     if (!userId) return [];
     
-    // We only fetch pending requests. User fetching them must be the Owner (checked implicitly by RLS or UI, but we bypass RLS so we just return them)
     // To be perfectly safe, verify notebook ownership first
     const dbUser = await syncUser();
     const { data: nb } = await supabaseAdmin.from("Notebook").select("userId").eq("id", notebookId).single();
@@ -590,10 +589,9 @@ export async function getPendingRoomRequests(notebookId: string) {
         .select(`
             userId,
             status,
-            User:userId ( id, email, fullName, imageUrl )
+            User:userId ( id, email, name, avatar )
         `)
         .eq("notebookId", notebookId)
-        .eq("status", "pending")
         .order("createdAt", { ascending: false });
 
     return data || [];
@@ -607,9 +605,7 @@ export async function approveEditAccess(notebookId: string, guestUserId: string)
 
     await supabaseAdmin
         .from("RoomAccessRequest")
-        .update({ status: 'approved' })
-        .eq("notebookId", notebookId)
-        .eq("userId", guestUserId);
+        .upsert({ notebookId, userId: guestUserId, status: 'approved' }, { onConflict: 'notebookId,userId' });
 }
 
 export async function rejectEditAccess(notebookId: string, guestUserId: string) {

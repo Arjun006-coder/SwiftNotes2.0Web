@@ -1,6 +1,6 @@
 import { Liveblocks } from "@liveblocks/node";
 import { currentUser } from "@clerk/nextjs/server";
-import { checkNotebookAccess } from "@/app/actions";
+import { checkNotebookAccess, syncUser } from "@/app/actions";
 
 export const maxDuration = 10; // 10 second max — fail fast instead of 16-min hang
 
@@ -22,7 +22,10 @@ export async function POST(request: Request) {
                 return new Response("Unauthorized", { status: 401 });
             }
 
-            const session = liveblocks.prepareSession(user.id, {
+            const dbUser = await syncUser();
+            if (!dbUser) return new Response("Unauthorized", { status: 401 });
+
+            const session = liveblocks.prepareSession(dbUser.id, {
                 userInfo: {
                     name: user.fullName || user.emailAddresses[0]?.emailAddress || "Anonymous",
                     avatar: user.imageUrl || "",
