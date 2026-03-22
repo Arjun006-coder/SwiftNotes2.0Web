@@ -234,7 +234,10 @@ export default function AISidebar({ isOpen, onClose, notebookText, videos: rawVi
             // Client browser natively routes directly to Python API map-reduce service via CORS.
             const res = await fetch("https://beige-cameras-spend.loca.lt/extract", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Bypass-Tunnel-Reminder": "true" 
+                },
                 body: JSON.stringify({ url: videoUrl })
             });
             
