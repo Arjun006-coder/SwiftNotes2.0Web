@@ -232,7 +232,7 @@ export default function AISidebar({ isOpen, onClose, notebookText, videos: rawVi
             
             // Bypassing Next.js /api proxy to completely prevent UND_ERR_HEADERS_TIMEOUT TCP socket drops.
             // Client browser natively routes directly to Python API map-reduce service via CORS.
-            const res = await fetch("https://seo-telescope-somewhere-surrounding.trycloudflare.com/extract", {
+            const res = await fetch("https://beige-cameras-spend.loca.lt/extract", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ url: videoUrl })
