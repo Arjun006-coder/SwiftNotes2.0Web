@@ -230,11 +230,11 @@ export default function AISidebar({ isOpen, onClose, notebookText, videos: rawVi
         try {
             const videoUrl = rawVideos?.find((v: any) => v.videoId === selectedVideoId)?.url || `https://www.youtube.com/watch?v=${selectedVideoId}`;
             
-            const res = await fetch("https://swiftnotes-api-core.loca.lt/extract", {
+            const res = await fetch("https://multigranular-darrin-nonartistical.ngrok-free.dev/extract", {
                 method: "POST",
                 headers: { 
                     "Content-Type": "application/json",
-                    "Bypass-Tunnel-Reminder": "true" 
+                    "ngrok-skip-browser-warning": "true" 
                 },
                 body: JSON.stringify({ url: videoUrl })
             });
