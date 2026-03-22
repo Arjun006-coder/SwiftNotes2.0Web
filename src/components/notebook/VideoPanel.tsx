@@ -112,11 +112,20 @@ export default function VideoPanel({
                 setTranscripts(prev => {
                     const next = new Map(prev);
                     next.set(video.videoId, data.text);
-                    // Push all to parent
-                    const all = videos.filter(v => next.has(v.videoId)).map(v => ({ videoId: v.videoId, title: v.title, text: next.get(v.videoId)! }));
-                    onTranscriptsUpdate(all);
                     return next;
                 });
+                
+                // Build the updated parent payload directly using closure context + new data
+                const updatedTranscripts = videos
+                    .filter(v => transcripts.has(v.videoId) || v.videoId === video.videoId)
+                    .map(v => ({ 
+                        videoId: v.videoId, 
+                        title: v.title, 
+                        text: v.videoId === video.videoId ? data.text : transcripts.get(v.videoId)! 
+                    }));
+                
+                // Push the state update to the Parent explicitly outside the current Rendering Cycle macro-task
+                setTimeout(() => onTranscriptsUpdate(updatedTranscripts), 0);
             }
         } catch (e) { console.error(e); }
         setFetchingTranscript(null);

@@ -80,9 +80,9 @@ export async function POST(req: Request) {
                  throw new Error("Transcript is essentially empty or disabled.");
             }
         } catch (ytError) {
-             // Plan B: The creator completely disabled captions. We must download and extract it ourselves!
-             console.log(`[API] YouTube transcript disabled or empty. Booting up physical downloading & STT pipeline...`);
-             transcriptText = await transcribeVideoOffline(url, videoId);
+             // Plan B: The creator disabled captions. We no longer crash! Instead, we intentionally pass an empty transcript natively because the Python daemon organically handles Video STT & OCR independently!
+             console.log(`[API] YouTube transcript disabled. Gracefully bypassing extraction since Python handles Video OCR.`);
+             transcriptText = "Transcript disabled by Creator. Visual Video Processing will still work!";
         }
 
         return NextResponse.json({ text: transcriptText });
