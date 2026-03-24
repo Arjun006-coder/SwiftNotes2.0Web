@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { X, ZoomIn, FileText, Music, Pin, Clock } from "lucide-react";
 
 interface PolaroidProps {
@@ -18,6 +18,7 @@ interface PolaroidProps {
     onSeekTo?: (seconds: number) => void;
     /** New: called with the raw imageUrl so parent can decode {videoId, seconds} */
     onSnapSeek?: (imageUrl: string) => void;
+    readOnly?: boolean;
 }
 
 type MediaType = "image" | "audio" | "pdf" | "timestamp";
@@ -45,7 +46,7 @@ function extractSecondsFromTimestamp(src: string): number {
 export default function PolaroidSnap({
     id, imageUrl, url, caption = "",
     defaultX = 100, defaultY = 100, rotation = -3,
-    onSavePosition, onDelete, onSeekTo, onSnapSeek
+    onSavePosition, onDelete, onSeekTo, onSnapSeek, readOnly
 }: PolaroidProps) {
     const src = imageUrl || url || "";
     const mediaType = detectMediaType(src, caption);
@@ -53,6 +54,14 @@ export default function PolaroidSnap({
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isPinned, setIsPinned] = useState(false);
     const clickTimer = useRef<NodeJS.Timeout | null>(null);
+    const isDragging = useRef(false);
+
+    // 🟢 SYNCHRONIZED POSITION TRACKING (Fixes Live-Sync jump glitches)
+    useEffect(() => {
+        if (!isDragging.current) {
+            setPos({ x: defaultX, y: defaultY });
+        }
+    }, [defaultX, defaultY]);
 
     const handleClick = () => {
         if (mediaType !== "timestamp") return;
@@ -92,16 +101,18 @@ export default function PolaroidSnap({
     return (
         <>
             <motion.div
-                drag={!isPinned}
+                drag={!isPinned && !readOnly}
                 dragMomentum={false}
                 initial={{ x: defaultX, y: defaultY, rotate: rotation, scale: 0.8, opacity: 0 }}
-                animate={{ x: 0, y: 0, rotate: rotation, scale: 1, opacity: 1 }}
+                animate={{ x: pos.x - defaultX, y: pos.y - defaultY, rotate: rotation, scale: 1, opacity: 1 }}
                 transition={{ type: "spring", stiffness: 200, damping: 20 }}
+                onDragStart={() => isDragging.current = true}
                 onDragEnd={(_, info) => {
+                    isDragging.current = false;
                     const newX = pos.x + info.offset.x;
                     const newY = pos.y + info.offset.y;
                     setPos({ x: newX, y: newY });
-                    if (id && onSavePosition) onSavePosition(id, newX, newY);
+                    if (id && onSavePosition && !readOnly) onSavePosition(id, newX, newY);
                 }}
                 whileDrag={{ scale: 1.08, rotate: 0, zIndex: 99, cursor: "grabbing" }}
                 className="absolute w-44 bg-white p-2.5 pb-8 shadow-xl hover:shadow-2xl rounded-sm cursor-grab z-20 border border-black/8 group"
@@ -130,7 +141,7 @@ export default function PolaroidSnap({
                     >
                         <Pin size={11} className={isPinned ? "fill-white" : ""} />
                     </button>
-                    {id && onDelete && (
+                    {id && onDelete && !readOnly && (
                         <button
                             className="w-6 h-6 rounded-full bg-red-500/80 text-white flex items-center justify-center hover:bg-red-600 transition"
                             onClick={e => { e.stopPropagation(); onDelete(id); }}
@@ -166,10 +177,18 @@ export default function PolaroidSnap({
                                         <img src={customImage} alt={titleLabel} className="w-full h-full object-cover" draggable={false} />
                                     ) : videoId ? (
                                         <img
-                                            src={`https://img.youtube.com/vi/${videoId}/mqdefault.jpg`}
+                                            src={`https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`}
                                             alt={titleLabel}
                                             className="w-full h-full object-cover"
                                             draggable={false}
+                                            onError={(e) => {
+                                                const target = e.target as HTMLImageElement;
+                                                if (target.src.includes('maxresdefault.jpg')) {
+                                                    target.src = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+                                                } else if (target.src.includes('hqdefault.jpg')) {
+                                                    target.src = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
+                                                }
+                                            }}
                                         />
 
                                     ) : (

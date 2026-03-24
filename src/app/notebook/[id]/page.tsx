@@ -21,6 +21,12 @@ import {
 import { LiveblocksProvider, RoomProvider, ClientSideSuspense, useOthers, useBroadcastEvent, useEventListener, useSelf, useRoom } from "@liveblocks/react/suspense";
 import { useUser } from "@clerk/nextjs";
 import ConfirmModal from "@/components/ui/ConfirmModal";
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseClient = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 // --- LIVEBLOCKS MULTIPLAYER AVATARS ---
 function ActiveUsers({ isPublic }: { isPublic: boolean }) {
@@ -336,7 +342,17 @@ export default function NotebookView() {
             setLoading(false);
         }
         load();
-    }, [id, user?.id]);
+
+        // 🟢 GLOBAL REAL-TIME WEBSOCKET SYNC INJECTION
+        // Automatically fetch new strokes implicitly whenever another peer mutates the DB
+        const channel = supabaseClient
+            .channel(`notebook-sync-${id}`)
+            .on("postgres_changes", { event: "*", schema: "public", table: "NotePage" }, () => refreshNotebook())
+            .on("postgres_changes", { event: "*", schema: "public", table: "Snap" }, () => refreshNotebook())
+            .subscribe();
+
+        return () => { supabaseClient.removeChannel(channel); };
+    }, [id, user?.id, refreshNotebook]);
 
     useEffect(() => {
         if (notebook) {
@@ -352,14 +368,16 @@ export default function NotebookView() {
                 id: p.id,
                 content: p.content || "",
                 drawingData: p.drawingData || null,
-                snaps: p.snaps?.map((s: any) => ({
-                    id: s.id,
-                    imageUrl: s.imageUrl,
-                    caption: s.caption,
-                    defaultX: s.x,
-                    defaultY: s.y,
-                    rotation: s.rotation || 0,
-                })) || []
+                snaps: (p.snaps || [])
+                    .sort((a: any, b: any) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
+                    .map((s: any, i: number) => ({
+                        id: s.id,
+                        imageUrl: s.imageUrl,
+                        caption: s.caption,
+                        defaultX: s.x,
+                        defaultY: s.y,
+                        rotation: s.rotation || 0,
+                    }))
             }))
         : [];
 

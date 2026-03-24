@@ -29,15 +29,17 @@ async function findExe(candidates: string[]): Promise<string> {
     return candidates[0];
 }
 
-function runProcess(cmd: string, args: string[], timeoutMs: number): Promise<void> {
+function runProcess(cmd: string, args: string[], timeoutMs: number): Promise<string> {
     return new Promise((resolve, reject) => {
         const proc = spawn(cmd, args, { stdio: "pipe" });
+        let stdout = "";
         let stderr = "";
+        proc.stdout?.on("data", (d) => (stdout += d.toString()));
         proc.stderr?.on("data", (d) => (stderr += d.toString()));
         const timer = setTimeout(() => { proc.kill(); reject(new Error(`Timeout: ${path.basename(cmd)}`)); }, timeoutMs);
         proc.on("close", (code) => {
             clearTimeout(timer);
-            if (code === 0) resolve();
+            if (code === 0) resolve(stdout.trim());
             else reject(new Error(`${path.basename(cmd)} exit ${code}: ${stderr.slice(-400)}`));
         });
         proc.on("error", (e) => { clearTimeout(timer); reject(e); });
@@ -61,24 +63,21 @@ export async function POST(req: Request) {
         ]);
 
         const url = `https://www.youtube.com/watch?v=${videoId}`;
-        const startSec = Math.max(0, Math.floor(seconds) - 2);
 
-        // Step 1: download ~6s clip around timestamp
-        await runProcess(ytdlp, [
-            "--ffmpeg-location", ffmpeg,
-            "--download-sections", `*${startSec}-${startSec + 6}`,
-            "-f", "bestvideo[height<=480][ext=mp4]/bestvideo[height<=480]/bestvideo",
+        const streamUrl = await runProcess(ytdlp, [
+            "-f", "bestvideo[height<=720]+bestaudio/best",
+            "-g",
             "--no-playlist",
-            "--force-overwrites",
-            "-o", videoFile,
             url,
-        ], 25000);
+        ], 15000);
 
-        // Step 2: extract 1 frame
-        const offsetInClip = Math.max(0, seconds - startSec);
+        if (!streamUrl) throw new Error("Could not extract stream URL");
+
+        // Step 2: extract exactly 1 frame instantly from the streaming buffer at exact second
         await runProcess(ffmpeg, [
-            "-ss", String(offsetInClip),
-            "-i", videoFile,
+            "-user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "-ss", String(seconds),
+            "-i", streamUrl.split("\n")[0].trim(),
             "-vframes", "1",
             "-q:v", "3",
             "-y",

@@ -2,6 +2,7 @@
 
 import { supabaseAdmin } from "@/lib/supabase";
 import { currentUser, auth } from "@clerk/nextjs/server";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export async function syncUser() {
     const user = await currentUser();
@@ -329,7 +330,8 @@ export async function getCommunityNotebooks(search: string = "", tagFilters: str
             .select(`
                 id, title, description, tags, likes, "isPublic",
                 "coverColor", "createdAt", "updatedAt", "userId",
-                user:User(id, name, email, avatar)
+                user:User(id, name, email, avatar),
+                comments:NotebookComment(count)
             `)
             .eq("isPublic", true);
 
@@ -343,28 +345,54 @@ export async function getCommunityNotebooks(search: string = "", tagFilters: str
         } else if (sortOption === "topAllTime") {
             query = query.order("likes", { ascending: false }).order("updatedAt", { ascending: false });
         } else {
-            // Default Trending
             query = query.order("likes", { ascending: false }).order("updatedAt", { ascending: false });
         }
 
         query = query.limit(50);
 
-        const actualTags = tagFilters.filter(t => t && t !== "All");
+        const actualTags = tagFilters.filter((t: string) => t && t !== "All");
 
-        // Advanced Semantic Search: Combine Text & Tag Search into a SINGLE massive OR clause
-        // so that a notebook matching the AI-mapped tags is included even if the title misses the exact string.
         if (search.trim() || actualTags.length > 0) {
             let orQueries = [];
+            const safeSearch = search.trim().replace(/,/g, ' ');
 
-            if (search.trim()) {
-                const safeSearch = search.trim().replace(/,/g, ' '); // Strip commas which break Postgrest .or()
+            if (safeSearch) {
                 orQueries.push(`title.ilike.%${safeSearch}%`);
                 orQueries.push(`description.ilike.%${safeSearch}%`);
+                
+                // Advanced Semantic Search Engine via Gemini
+                try {
+                    // Pre-fetch all global exact tags efficiently
+                    const { data: tagNodes } = await supabaseAdmin.from("Notebook").select("tags").eq("isPublic", true).limit(200);
+                    const globalTags = Array.from(new Set((tagNodes || []).flatMap((n: any) => n.tags || [])));
+                    
+                    if (globalTags.length > 0 && process.env.GEMINI_API_KEY) {
+                        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+                        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                        const prompt = `
+User searched for: "${safeSearch}"
+Available distinct tags in database: ${JSON.stringify(globalTags)}
+Analyze the search intent. Return a JSON array of up to 20 strictly exact tags from the provided list that are semantically identical or highly relevant. Output ONLY a raw JSON array of strings ([ "tag1", "tag2" ]), no markdown blocks, no text.`;
+                        
+                        const result = await model.generateContent(prompt);
+                        const aiResp = result.response.text().replace(/[\s\S]*?(\[[\s\S]*\])[\s\S]*/, "$1").trim();
+                        if (aiResp.startsWith("[") && aiResp.endsWith("]")) {
+                            const semanticTags = JSON.parse(aiResp);
+                            if (semanticTags.length > 0) {
+                                // Add AI exact-match tags to the OR query payload
+                                const mappedAiTags = semanticTags.map((t: string) => `"${t.replace(/"/g, '')}"`).join(',');
+                                orQueries.push(`tags.ov.{${mappedAiTags}}`);
+                            }
+                        }
+                    }
+                } catch (e) { console.warn("Gemini semantic fallback failed", e); }
+                
+                // Final fallback if AI failed: check the search string natively in tags
+                orQueries.push(`tags.cs.{"${safeSearch}"}`);
             }
 
             if (actualTags.length > 0) {
-                // Format for Postgrest array overlaps inside OR: tags.ov.{"tag1","tag 2"}
-                const safeTags = actualTags.map(t => `"${t.replace(/"/g, '')}"`).join(',');
+                const safeTags = actualTags.map((t: string) => `"${t.replace(/"/g, '')}"`).join(',');
                 orQueries.push(`tags.ov.{${safeTags}}`);
             }
 
@@ -373,6 +401,14 @@ export async function getCommunityNotebooks(search: string = "", tagFilters: str
 
         const { data, error } = await query;
         if (error) throw error;
+        
+        // Clean up the Supabase array-count syntax globally
+        if (data && data.length > 0) {
+            data.forEach((n: any) => {
+                n.commentCount = n.comments?.[0]?.count || 0;
+                delete n.comments;
+            });
+        }
         
         // Hydrate personal interactions if user is logged in
         const dbUser = await syncUser();
@@ -707,6 +743,17 @@ export async function voteNotebook(notebookId: string, value: 1 | -1 | 0) {
     const dbUser = await syncUser();
     if (!dbUser) throw new Error("Unauthorized");
 
+    // Fetch previous vote to calculate pure atomic payload
+    const { data: previous } = await supabaseAdmin
+        .from("NotebookVote")
+        .select("value")
+        .eq("notebookId", notebookId)
+        .eq("userId", dbUser.id)
+        .single();
+    
+    const prevValue = previous ? previous.value : 0;
+    const delta = value - prevValue;
+
     if (value === 0) {
         await supabaseAdmin.from("NotebookVote").delete().eq("notebookId", notebookId).eq("userId", dbUser.id);
     } else {
@@ -715,12 +762,14 @@ export async function voteNotebook(notebookId: string, value: 1 | -1 | 0) {
             .upsert({ notebookId, userId: dbUser.id, value }, { onConflict: "notebookId,userId" });
     }
 
-    // Recalculate physical 'likes' metric on Notebook for legacy API compatibility
-    const { data } = await supabaseAdmin.from("NotebookVote").select("value").eq("notebookId", notebookId);
-    const score = (data || []).reduce((acc: number, v: any) => acc + (v.value || 0), 0);
-    await supabaseAdmin.from("Notebook").update({ likes: score }).eq("id", notebookId);
+    // Mutate the physical likes metric natively and atomically
+    const { data: notebook } = await supabaseAdmin.from("Notebook").select("likes").eq("id", notebookId).single();
+    const currentLikes = notebook ? (notebook.likes || 0) : 0;
+    const newScore = currentLikes + delta;
+    
+    await supabaseAdmin.from("Notebook").update({ likes: newScore }).eq("id", notebookId);
 
-    return score;
+    return newScore;
 }
 
 export async function toggleBookmark(notebookId: string, isBookmarked: boolean) {
@@ -735,22 +784,30 @@ export async function toggleBookmark(notebookId: string, isBookmarked: boolean) 
 }
 
 export async function getNotebookComments(notebookId: string) {
+    const dbUser = await syncUser();
     const { data } = await supabaseAdmin
         .from("NotebookComment")
-        .select(`id, content, createdAt, userId, User:userId ( id, name, email, avatar )`)
+        .select(`id, content, "parentId", createdAt, userId, User:userId ( id, name, email, avatar )`) // Using raw SQL column directly natively
         .eq("notebookId", notebookId)
-        .order("createdAt", { ascending: false });
-    return data || [];
+        .order("createdAt", { ascending: true });
+    
+    return (data || []).map((c: any) => ({
+        ...c,
+        isOwner: dbUser ? c.userId === dbUser.id : false
+    }));
 }
 
-export async function addNotebookComment(notebookId: string, content: string) {
+export async function addNotebookComment(notebookId: string, content: string, parentId?: string) {
     const dbUser = await syncUser();
     if (!dbUser) throw new Error("Unauthorized");
     if (!content.trim()) throw new Error("Comment cannot be completely empty.");
 
+    const payload: any = { notebookId, userId: dbUser.id, content: content.trim() };
+    if (parentId) payload.parentId = parentId; // Direct SQL mapped column
+
     const { data: inserted, error: insertError } = await supabaseAdmin
         .from("NotebookComment")
-        .insert({ notebookId, userId: dbUser.id, content: content.trim() })
+        .insert(payload)
         .select()
         .single();
     
@@ -758,11 +815,36 @@ export async function addNotebookComment(notebookId: string, content: string) {
 
     const { data } = await supabaseAdmin
         .from("NotebookComment")
-        .select(`id, content, createdAt, userId, User:userId ( id, name, email, avatar )`)
+        .select(`id, content, "parentId", createdAt, userId, User:userId ( id, name, email, avatar )`)
         .eq("id", inserted.id)
         .single();
 
     return data;
+}
+
+export async function editNotebookComment(commentId: string, newContent: string) {
+    const dbUser = await syncUser();
+    if (!dbUser) throw new Error("Unauthorized");
+    if (!newContent.trim()) throw new Error("Comment cannot be empty.");
+
+    const { data: comment } = await supabaseAdmin.from("NotebookComment").select("userId").eq("id", commentId).single();
+    if (!comment) throw new Error("Comment not found");
+    if (comment.userId !== dbUser.id) throw new Error("Forbidden");
+
+    const { error } = await supabaseAdmin.from("NotebookComment").update({ content: newContent.trim() }).eq("id", commentId);
+    if (error) throw new Error(error.message);
+}
+
+export async function deleteNotebookComment(commentId: string) {
+    const dbUser = await syncUser();
+    if (!dbUser) throw new Error("Unauthorized");
+
+    const { data: comment } = await supabaseAdmin.from("NotebookComment").select("userId").eq("id", commentId).single();
+    if (!comment) throw new Error("Comment not found");
+    if (comment.userId !== dbUser.id) throw new Error("Forbidden");
+
+    const { error } = await supabaseAdmin.from("NotebookComment").delete().eq("id", commentId);
+    if (error) throw new Error(error.message);
 }
 
 export async function logNotebookView(notebookId: string) {
