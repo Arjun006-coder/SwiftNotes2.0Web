@@ -175,10 +175,10 @@ export default function VideoPanel({
             // Try to get real video frame via server-side yt-dlp + ffmpeg
             let frameBase64: string | null = null;
             try {
-                const res = await fetch("/api/youtube-frame", {
+                const res = await fetch("https://multigranular-darrin-nonartistical.ngrok-free.dev/snapshot", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ videoId: activeVideo.videoId, seconds: Math.floor(secs) }),
+                    body: JSON.stringify({ url: activeVideo.url, seconds: secs }),
                     signal: AbortSignal.timeout(28000),
                 });
                 if (res.ok) {

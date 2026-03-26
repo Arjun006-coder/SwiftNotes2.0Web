@@ -363,14 +363,15 @@ export async function getCommunityNotebooks(search: string = "", tagFilters: str
                 // Advanced Semantic Search Engine via Gemini
                 try {
                     // Pre-fetch all global exact tags efficiently
-                    const { data: tagNodes } = await supabaseAdmin.from("Notebook").select("tags").eq("isPublic", true).limit(200);
-                    const globalTags = Array.from(new Set((tagNodes || []).flatMap((n: any) => n.tags || [])));
-                    
+                    const { data: dbTags } = await supabaseAdmin.from("Notebook").select("tags");
+                    const allTags = Array.from(new Set(dbTags?.flatMap(n => n.tags || []) || []));
+                    const globalTags = allTags.filter(t => t);
+
                     if (globalTags.length > 0 && process.env.GEMINI_API_KEY) {
                         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-                        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-                        const prompt = `
-User searched for: "${safeSearch}"
+                        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+                        const prompt = `You are a semantic NLP search engine. 
+Given the user's search query "${safeSearch}", find up to 10 most semantically related tags from this exact list of available database tags.
 Available distinct tags in database: ${JSON.stringify(globalTags)}
 Analyze the search intent. Return a JSON array of up to 20 strictly exact tags from the provided list that are semantically identical or highly relevant. Output ONLY a raw JSON array of strings ([ "tag1", "tag2" ]), no markdown blocks, no text.`;
                         

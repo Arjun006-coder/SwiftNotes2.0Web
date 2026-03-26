@@ -40,21 +40,16 @@ Return EXACTLY a pure JSON array of strings containing the matched tags from the
 OUTPUT ONLY RAW JSON. NO CONVERSATION. NO MARKDOWN.
 Example: ["machine learning", "python", "ai"]`;
 
-        // We use gemma:2b as requested for all NLP tasks
-        const response = await fetch("http://localhost:11434/api/generate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                model: "gemma:2b",
-                prompt,
-                stream: false,
-            }),
-        });
+        if (!process.env.GEMINI_API_KEY) {
+            throw new Error("Missing GEMINI_API_KEY");
+        }
 
-        if (!response.ok) throw new Error("Ollama generation failed");
-        const result = await response.json();
+        const { GoogleGenerativeAI } = await import('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
         
-        let jsonText = result.response.trim();
+        const response = await model.generateContent(prompt);
+        let jsonText = response.response.text().trim();
         const jsonMatch = jsonText.match(/\[[\s\S]*\]/);
         
         let mappedTags: string[] = [search]; // always include explicit search just in case
