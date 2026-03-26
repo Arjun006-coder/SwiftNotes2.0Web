@@ -30,8 +30,8 @@ export default function CommunityPage() {
     // Interactive Modal states
     const [commentTarget, setCommentTarget] = useState<{ id: string, title: string } | null>(null);
 
-    // Debounce search to avoid spamming the server action
-    const [debouncedSearch] = useDebounceValue(searchInput, 400);
+    // Stop aggressive auto-fetching to prevent Gemini API 429 Quota Exceeded limits!
+    const [executedSearch, setExecutedSearch] = useState("");
 
     const fetchNotebooks = useCallback(async (search: string, tag: string, sort: string) => {
         setIsLoading(true);
@@ -67,10 +67,10 @@ export default function CommunityPage() {
         fetchNotebooks("", "", "trending");
     }, [fetchNotebooks]);
 
-    // Re-fetch when search or tag changes
+    // Re-fetch when explicit search executes or specific tag/sort filters change
     useEffect(() => {
-        fetchNotebooks(debouncedSearch, activeTag, sortMode);
-    }, [debouncedSearch, activeTag, sortMode, fetchNotebooks]);
+        fetchNotebooks(executedSearch, activeTag, sortMode);
+    }, [executedSearch, activeTag, sortMode, fetchNotebooks]);
 
     // All tags extracted from current results (for the "All" case — full tag list)
     const [allTags, setAllTags] = useState<string[]>(["All"]);
@@ -131,15 +131,23 @@ export default function CommunityPage() {
                         Explore, vote, and discuss public notebooks shared by the community.
                     </p>
                 </div>
-                <div className="relative shrink-0">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" size={15} />
-                    <input
-                        type="text"
-                        value={searchInput}
-                        onChange={e => setSearchInput(e.target.value)}
-                        placeholder="Search by title, description, or semantic queries..."
-                        className="bg-white/5 border border-white/10 rounded-full py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-primary/50 w-72 lg:w-96 transition-all"
-                    />
+                <div className="relative shrink-0 flex items-center gap-2">
+                    <div className="relative">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" size={15} />
+                        <input
+                            type="text"
+                            value={searchInput}
+                            onChange={e => setSearchInput(e.target.value)}
+                            onKeyDown={e => e.key === "Enter" && setExecutedSearch(searchInput.trim())}
+                            placeholder="Search (Press Enter to execute)..."
+                            className="bg-white/5 border border-white/10 rounded-full py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-primary/50 w-72 lg:w-96 transition-all"
+                        />
+                    </div>
+                    {searchInput !== executedSearch && (
+                        <button onClick={() => setExecutedSearch(searchInput.trim())} className="bg-primary/20 text-primary hover:bg-primary/30 px-3 py-1.5 rounded-full text-xs font-semibold transition" title="Search">
+                            Go
+                        </button>
+                    )}
                 </div>
             </div>
 
