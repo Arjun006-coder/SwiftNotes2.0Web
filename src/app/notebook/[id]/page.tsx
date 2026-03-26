@@ -280,6 +280,11 @@ export default function NotebookView() {
     const [editDescription, setEditDescription] = useState("");
     const [editTags, setEditTags] = useState("");
     const [savingSettings, setSavingSettings] = useState(false);
+    
+    // Explicit dual-page context target
+    const [activePageId, setActivePageId] = useState<string | null>(null);
+
+    // Click outside settings hooks...DB resolves
     const [canEdit, setCanEdit] = useState(true); // Default TRUE until DB resolves
     const [isHost, setIsHost] = useState(false); // Validated owner state from DB
     const [hasPendingRequest, setHasPendingRequest] = useState(false);
@@ -439,10 +444,11 @@ export default function NotebookView() {
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (!file || !pages[currentPageIndex]?.id) return;
+        const targetId = activePageId || pages[currentPageIndex]?.id;
+        if (!file || !targetId) return;
         e.target.value = "";
 
-        const pageId = pages[currentPageIndex].id;
+        const pageId = targetId;
 
         try {
             // Upload directly to Supabase Storage — avoid passing large base64 through Server Actions
@@ -508,12 +514,13 @@ export default function NotebookView() {
 
     // Timestamp snap: stores videoId+seconds encoded in the imageUrl
     const handleTimestampSnap = async (videoId: string, videoUrl: string, seconds: number, label: string, frameBase64?: string | null) => {
-        if (!pages[currentPageIndex]?.id) return;
+        const targetId = activePageId || pages[currentPageIndex]?.id;
+        if (!targetId) return;
         try {
             // Encode the real HQ image AND the timestamp as JSON inside a special data URI
             const payload = btoa(JSON.stringify({ videoId, videoUrl, seconds, label, image: frameBase64 || undefined }));
             const caption = `⏱ ${label}`;
-            await createSnap(pages[currentPageIndex].id, `data:text/timestamp;base64,${payload}`, caption);
+            await createSnap(targetId, `data:text/timestamp;base64,${payload}`, caption);
             await refreshNotebook();
         } catch (e) { console.error(e); }
     };
@@ -763,6 +770,8 @@ export default function NotebookView() {
                                     onSnapSeek={handleSnapSeek}
                                     onFlip={(idx) => setCurrentPageIndex(idx)}
                                     readOnly={!canEdit}
+                                    activePageId={activePageId}
+                                    onPageClick={(id) => setActivePageId(id)}
                                 />
                             )}
                         </main>

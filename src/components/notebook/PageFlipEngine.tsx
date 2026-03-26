@@ -22,12 +22,19 @@ interface PageProps {
     onSnapSeek?: (imageUrl: string) => void;
     snaps?: any[];
     readOnly?: boolean;
+    isActive?: boolean;
+    onPageClick?: (pageId: string) => void;
 }
 
 const Page = forwardRef<HTMLDivElement, PageProps>((props, ref) => {
     return (
         // No overflow-hidden — polaroids must float freely
-        <div className="demoPage bg-[#fffce0] shadow-[inset_0_0_20px_rgba(0,0,0,0.02)] relative" ref={ref}>
+        <div 
+            className="demoPage bg-[#fffce0] shadow-[inset_0_0_20px_rgba(0,0,0,0.02)] relative transition-shadow duration-500" 
+            style={props.isActive ? { boxShadow: "inset 0 0 20px rgba(0, 0, 0, 0.02), inset 0 0 0 2px rgba(99, 102, 241, 0.15)" } : undefined}
+            ref={ref}
+            onClickCapture={() => { if (props.onPageClick && props.id) props.onPageClick(props.id); }}
+        >
             <LinedPaper />
 
             {/* Drawing Canvas */}
@@ -64,13 +71,15 @@ const Page = forwardRef<HTMLDivElement, PageProps>((props, ref) => {
                             onDelete={props.onDeleteSnap}
                             onSeekTo={props.onSeekTo}
                             onSnapSeek={props.onSnapSeek}
+                            readOnly={props.readOnly}
                         />
                     </div>
                 ))}
             </div>
 
             {/* Page number */}
-            <div className="absolute bottom-3 right-5 font-display text-gray-400/70 text-xs font-bold z-30 select-none">
+            <div className={`absolute bottom-3 right-5 font-display text-xs font-bold z-30 select-none flex items-center gap-1.5 transition-colors ${props.isActive ? "text-indigo-400" : "text-gray-400/50"}`}>
+                {props.isActive && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shadow-[0_0_5px_rgba(99,102,241,0.6)]" title="Target for inserted Snaps/Media" />}
                 {props.number}
             </div>
         </div>
@@ -89,9 +98,11 @@ interface PageFlipEngineProps {
     onSnapSeek?: (imageUrl: string) => void;
     onFlip?: (pageIndex: number) => void;
     readOnly?: boolean;
+    activePageId?: string | null;
+    onPageClick?: (pageId: string) => void;
 }
 
-export default function PageFlipEngine({ pages, mode, onSaveText, onSaveDrawing, onSaveSnap, onDeleteSnap, onSeekTo, onSnapSeek, onFlip, readOnly }: PageFlipEngineProps) {
+export default function PageFlipEngine({ pages, mode, onSaveText, onSaveDrawing, onSaveSnap, onDeleteSnap, onSeekTo, onSnapSeek, onFlip, readOnly, activePageId, onPageClick }: PageFlipEngineProps) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const bookRef = useRef<any>(null);
     const [currentPage, setCurrentPage] = useState(0);
@@ -164,6 +175,8 @@ export default function PageFlipEngine({ pages, mode, onSaveText, onSaveDrawing,
                             mode={mode}
                             snaps={p.snaps}
                             readOnly={readOnly}
+                            isActive={p.id === activePageId}
+                            onPageClick={onPageClick}
                             onSaveText={(content) => p.id && onSaveText && onSaveText(p.id, content)}
                             onSaveDrawing={(data) => p.id && onSaveDrawing && onSaveDrawing(p.id, data)}
                             onSaveSnap={(snapId, x, y) => onSaveSnap && onSaveSnap(snapId, x, y)}
