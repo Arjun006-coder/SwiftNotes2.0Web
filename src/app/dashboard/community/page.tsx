@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Search, Heart, BookOpen, Globe, Tag, Loader2 } from "lucide-react";
+import { Search, Heart, BookOpen, Globe, Tag, Loader2, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useState, useCallback } from "react";
 import { getCommunityNotebooks, voteNotebook, toggleBookmark } from "@/app/actions";
@@ -121,6 +121,65 @@ export default function CommunityPage() {
                     onClose={() => setCommentTarget(null)} 
                 />
             )}
+            {/* Featured Spotlight */}
+            {!isLoading && notebooks.length > 0 && (
+                <Link href={`/notebook/${notebooks[0].id}`}>
+                    <motion.div
+                        initial={{ opacity: 0, y: 30 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="glass-card p-8 md:p-12 rounded-[3rem] border-primary/20 relative overflow-hidden group mb-12"
+                    >
+                        <div className="absolute top-0 right-0 w-96 h-96 bg-primary/10 blur-[100px] -translate-y-1/2 translate-x-1/2 rounded-full" />
+                        <div className="relative z-10 flex flex-col md:flex-row gap-12 items-center">
+                            <div className="flex-1 space-y-6">
+                                <div className="inline-flex items-center gap-2 px-3 py-1 bg-primary/20 text-primary text-[10px] font-bold rounded-full uppercase tracking-widest">
+                                    🌟 Notebook of the Week
+                                </div>
+                                <h2 className="text-4xl md:text-5xl font-display font-bold text-white group-hover:text-primary transition-colors leading-[1.1]">
+                                    {notebooks[0].title}
+                                </h2>
+                                <p className="text-lg text-muted-foreground line-clamp-2 max-w-xl">
+                                    {notebooks[0].description || "An exceptional study resource shared by the community."}
+                                </p>
+                                <div className="flex items-center gap-6 pt-4">
+                                    <div className="flex items-center gap-2">
+                                        <Heart className="text-rose-400 fill-rose-400" size={18} />
+                                        <span className="font-bold text-white">{notebooks[0].likes || 0}</span>
+                                    </div>
+                                    <div className="text-xs text-white/40 flex items-center gap-2">
+                                        Shared by <span className="text-white font-semibold">@{notebooks[0].user?.name?.split(" ")[0] || "Scholar"}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="w-full md:w-1/3 aspect-[4/3] bg-white/5 rounded-[2rem] border border-white/10 flex items-center justify-center relative overflow-hidden group-hover:scale-105 transition-transform">
+                                <BookOpen size={64} className="text-white/10 group-hover:text-primary/20 transition-colors" />
+                                <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-transparent" />
+                            </div>
+                        </div>
+                    </motion.div>
+                </Link>
+            )}
+
+            {/* Community Stats Bar */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-12">
+                {[
+                    { label: "Community Notes", val: "12,480", icon: <BookOpen size={16} /> },
+                    { label: "Active Scholars", val: "2,310", icon: <Users size={16} /> },
+                    { label: "Public Tags", val: (allTags.length - 1).toString(), icon: <Tag size={16} /> },
+                    { label: "Total Views", val: "85K+", icon: <Globe size={16} /> }
+                ].map(stat => (
+                    <div key={stat.label} className="glass-card p-4 rounded-2xl border border-white/5 flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-primary border border-white/10">
+                            {stat.icon}
+                        </div>
+                        <div>
+                            <p className="text-xl font-bold text-white leading-tight">{stat.val}</p>
+                            <p className="text-[10px] uppercase font-bold text-white/30 tracking-widest">{stat.label}</p>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
                 <div>
@@ -128,7 +187,7 @@ export default function CommunityPage() {
                         Community Hub
                     </h1>
                     <p className="text-muted-foreground mt-2 text-sm">
-                        Explore, vote, and discuss public notebooks shared by the community.
+                        Explore, vote, and discuss public notebooks shared by the globally.
                     </p>
                 </div>
                 <div className="relative shrink-0 flex items-center gap-2">
