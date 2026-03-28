@@ -161,7 +161,7 @@ export default function CommunityPage() {
             )}
 
             {/* Community Stats Bar */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-12">
+            {/* <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-12">
                 {[
                     { label: "Community Notes", val: "12,480", icon: <BookOpen size={16} /> },
                     { label: "Active Scholars", val: "2,310", icon: <Users size={16} /> },
@@ -178,7 +178,7 @@ export default function CommunityPage() {
                         </div>
                     </div>
                 ))}
-            </div>
+            </div> */}
 
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
