@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { motion } from "framer-motion";
 import { Youtube, X, Plus, Camera, ExternalLink, Loader2, PictureInPicture2, List, Check } from "lucide-react";
 import { addNotebookVideo, removeNotebookVideo } from "@/app/actions";
 
@@ -226,12 +227,14 @@ export default function VideoPanel({
     if (!isOpen) return null;
 
     return (
-        <div
+        <motion.div
+            drag
+            dragMomentum={false}
             className="absolute top-16 left-4 z-40 w-[390px] bg-[#0a0a14]/98 backdrop-blur-2xl rounded-2xl shadow-2xl border border-white/10 flex flex-col overflow-hidden"
             style={{ maxHeight: "calc(100vh - 80px)" }}
         >
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-2.5 bg-white/4 border-b border-white/8 shrink-0">
+            {/* Header (Drag Handle) */}
+            <div className="flex items-center justify-between px-4 py-2.5 bg-white/4 border-b border-white/8 shrink-0 cursor-grab active:cursor-grabbing">
                 <div className="flex items-center gap-2 text-white/90 text-xs font-semibold">
                     <Youtube size={14} className="text-red-400" />
                     <span>Video Library ({videos.length})</span>
@@ -360,6 +363,6 @@ export default function VideoPanel({
                     <p className="text-xs">Select a video from the list above</p>
                 </div>
             )}
-        </div>
+        </motion.div>
     );
 }

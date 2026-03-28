@@ -80,9 +80,16 @@ export async function POST(req: Request) {
                  throw new Error("Transcript is essentially empty or disabled.");
             }
         } catch (ytError) {
-             // Plan B: The creator disabled captions. We no longer crash! Instead, we intentionally pass an empty transcript natively because the Python daemon organically handles Video STT & OCR independently!
-             console.log(`[API] YouTube transcript disabled. Gracefully bypassing extraction since Python handles Video OCR.`);
-             transcriptText = "Transcript disabled by Creator. Visual Video Processing will still work!";
+             // Plan B: The creator disabled captions or we are blocked. 
+             // EXTREME BYPASS: Use yt-dlp to get the m4a audio and Groq Whisper to transcribe!
+             console.log(`[API] Standard fetch failed/blocked. Activating Whisper Bypass for ${videoId}...`);
+             try {
+                 transcriptText = await transcribeVideoOffline(url, videoId);
+                 console.log(`[API] Bypass successful! Transcription completed via Whisper.`);
+             } catch (bypassError: any) {
+                 console.error("[API] Whisper Bypass also failed:", bypassError?.message || bypassError);
+                 transcriptText = "Transcript extraction failed even with AI bypass. Please check if the video has restricted access or is private.";
+             }
         }
 
         return NextResponse.json({ text: transcriptText });

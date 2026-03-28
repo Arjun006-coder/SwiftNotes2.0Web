@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { useEffect } from "react";
 import { syncUser } from "@/app/actions";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { GlassTabIndicator } from "@/components/ui/GlassTabIndicator";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
@@ -56,14 +57,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                                 key={link.href}
                                 href={link.href}
                                 className={cn(
-                                    "flex flex-col md:flex-row items-center gap-2 p-3 md:px-4 md:py-3 rounded-xl transition-all w-full",
-                                    isActive
-                                        ? "bg-primary/20 text-primary shadow-[var(--shadow-glow)]"
-                                        : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                                    "relative flex flex-col md:flex-row items-center gap-2 p-3 md:px-4 md:py-3 rounded-2xl transition-all w-full group",
+                                    isActive ? "text-primary" : "text-muted-foreground hover:text-white/80"
                                 )}
                             >
-                                <Icon size={24} className={isActive ? "text-primary" : ""} />
-                                <span className="text-xs md:text-sm font-medium">{link.label}</span>
+                                {isActive && <GlassTabIndicator />}
+                                <Icon size={24} className={cn("relative z-10 transition-colors", isActive ? "text-primary" : "group-hover:text-white")} />
+                                <span className="relative z-10 text-xs md:text-sm font-bold tracking-tight">{link.label}</span>
                             </Link>
                         );
                     })}

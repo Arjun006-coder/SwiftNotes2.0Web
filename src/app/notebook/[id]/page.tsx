@@ -4,12 +4,14 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
     ChevronLeft, Pencil, Image as ImageIcon, FileText, Mic, Plus,
     MoreHorizontal, Trash2, Globe, Youtube, Users, Sparkles,
-    Tag, AlignLeft, Lock, Unlock, Copy, Shield, ShieldAlert, Check, X
+    Tag, AlignLeft, Lock, Unlock, Copy, Shield, ShieldAlert, Check, X,
+    Search, Settings, Library
 } from "lucide-react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 const PageFlipEngine = dynamic(() => import("@/components/notebook/PageFlipEngine"), { ssr: false });
 import AISidebar from "@/components/notebook/AISidebar";
+import KnowledgeHub from "@/components/notebook/KnowledgeHub";
 import VideoPanel, { VideoEntry } from "@/components/notebook/VideoPanel";
 import { useParams, useSearchParams } from "next/navigation";
 import {
@@ -272,6 +274,7 @@ export default function NotebookView() {
     const [notebook, setNotebook] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [isSidebarOpen, setSidebarOpen] = useState(false);
+    const [isHubOpen, setIsHubOpen] = useState(false);
     const [mode, setMode] = useState<"text" | "draw">("text");
     const [currentPageIndex, setCurrentPageIndex] = useState(0);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -665,6 +668,15 @@ export default function NotebookView() {
                                     <Sparkles size={20} />
                                 </button>
 
+                                {/* Knowledge Hub button — Multi-Video Intelligence */}
+                                <button
+                                    onClick={() => setIsHubOpen(v => !v)}
+                                    className={`p-2 rounded-full transition ${isHubOpen ? "bg-accent text-white shadow-[var(--glow-accent)]" : "text-foreground hover:bg-white/5"}`}
+                                    title="Knowledge Hub & Playlists"
+                                >
+                                    <Library size={20} />
+                                </button>
+
                                 {canEdit && (
                                     <>
                                         <button
@@ -811,6 +823,9 @@ export default function NotebookView() {
                             onClose={() => setDeleteModalOpen(false)}
                             isDestructive
                         />
+
+                        {/* Floating Knowledge Hub (Playlist Intelligence) */}
+                        <KnowledgeHub isOpen={isHubOpen} onToggle={() => setIsHubOpen(false)} />
                     </div>
                 </ClientSideSuspense>
             </RoomProvider>
