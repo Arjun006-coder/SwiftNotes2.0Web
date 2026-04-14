@@ -101,5 +101,7 @@ npm run dev
 - Sign in, create a notebook, and explore!
 
 > **Troubleshooting:**
+
 > - Ensure Ollama is running (`ollama run gemma:2b`) if AI features or semantic Community Search is spinning forever.
+
 > - If YouTube Video Snaps result in empty thumbnails, double check that `yt-dlp` and `ffmpeg` are successfully mapped to your System PATH variables.
