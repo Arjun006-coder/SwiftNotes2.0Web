@@ -36,10 +36,10 @@ export default function PlaylistImporter() {
             if (!res.ok) throw new Error("Failed to fetch playlist info.");
             const data = await res.json();
             
-            if (data.entries && data.entries.length > 0) {
+            if (data.videos && data.videos.length > 0) {
                 setPlaylistData(data);
                 // Pre-select all by default
-                setSelectedVideos(data.entries.map((v: any) => v.url));
+                setSelectedVideos(data.videos.map((v: any) => v.url));
             } else {
                 throw new Error("No videos found in this playlist.");
             }
@@ -71,7 +71,7 @@ export default function PlaylistImporter() {
         setStatus("Starting...");
 
         // Map selected URLs back to title and url objects
-        const chosenVids = playlistData.entries
+        const chosenVids = playlistData.videos
             .filter((v: any) => selectedVideos.includes(v.url))
             .map((v: any) => ({ url: v.url, title: v.title }));
 
@@ -178,11 +178,11 @@ export default function PlaylistImporter() {
                     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
                         <div className="flex items-center justify-between">
                             <h3 className="text-lg font-bold text-white line-clamp-1">{playlistData.title}</h3>
-                            <span className="text-sm text-gray-400">{selectedVideos.length} / {playlistData.entries.length} selected</span>
+                            <span className="text-sm text-gray-400">{selectedVideos.length} / {playlistData.videos.length} selected</span>
                         </div>
                         
                         <div className="max-h-[300px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                            {playlistData.entries.map((video: any, idx: number) => {
+                            {playlistData.videos.map((video: any, idx: number) => {
                                 const isSelected = selectedVideos.includes(video.url);
                                 return (
                                     <div 
