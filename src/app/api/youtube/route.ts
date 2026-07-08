@@ -13,46 +13,28 @@ const execPromise = util.promisify(exec);
 const groq = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_KEY }) : null;
 
 async function transcribeVideoOffline(url: string, videoId: string) {
-    if (!groq) throw new Error("GROQ_API_KEY is missing in .env but required for Whisper Audio fallback.");
-    
-    // Save to OS temp directory structure where it's accessible
-    const tempDir = path.join(os.tmpdir(), "swiftnotes-media");
-    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-    
-    const outputPathTemplate = path.join(tempDir, `${videoId}.%(ext)s`);
-    const finalAudioPath = path.join(tempDir, `${videoId}.m4a`);
-    
-    console.log(`[Groq Pipeline] Executing yt-dlp binary natively to extract raw audio for ${videoId}...`);
-    // Explicitly select the pre-encoded m4a audio stream to entirely bypass any system FFmpeg requirement!
-    const isWin = os.platform() === 'win32';
-    const ytDlpBinaryName = isWin ? 'yt-dlp.exe' : 'yt-dlp';
-    const ytDlpPath = path.resolve(process.cwd(), 'node_modules', 'youtube-dl-exec', 'bin', ytDlpBinaryName);
-    
-    // Check if the binary exists just in case
-    if (!fs.existsSync(ytDlpPath)) {
-        throw new Error(`Critical Dependency Missing: yt-dlp binary not found at ${ytDlpPath}`);
-    }
+    const groqKey = process.env.GROQ_API_KEY;
+    if (!groqKey) throw new Error("GROQ_API_KEY is missing in .env");
 
-    const cmd = `"${ytDlpPath}" -f "bestaudio[ext=m4a]" -o "${outputPathTemplate}" "${url}"`;
+    console.log(`[Groq Pipeline] Forwarding transcription request to Python Backend for ${videoId}...`);
     
-    try {
-        await execPromise(cmd);
-    } catch (e: any) {
-        console.error("Yt-dlp error:", e);
-        throw new Error("Failed to download video audio stream using yt-dlp. Make sure npx is working.");
-    }
-    
-    if (!fs.existsSync(finalAudioPath)) throw new Error("Audio extraction from yt-dlp failed (no m4a found).");
-
-    console.log(`[Groq Pipeline] Transcribing native M4A via Groq Whisper...`);
-    // Pass to Groq Whisper Large V3 Turbo for instant transcription
-    const transcription = await groq.audio.transcriptions.create({
-        file: fs.createReadStream(finalAudioPath),
-        model: "whisper-large-v3-turbo",
-        response_format: "json",
+    // Forward the request to the ngrok backend which has yt-dlp natively installed.
+    // We send the GROQ_API_KEY from the Next.js environment so the backend can use it.
+    const res = await fetch("https://multigranular-darrin-nonartistical.ngrok-free.dev/transcribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url, groq_key: groqKey })
     });
     
-    return transcription.text;
+    if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`Backend transcription failed: ${err}`);
+    }
+    
+    const data = await res.json();
+    if (!data.text) throw new Error("Backend returned empty transcript text.");
+    
+    return data.text;
 }
 
 export async function POST(req: Request) {
