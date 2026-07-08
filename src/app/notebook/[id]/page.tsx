@@ -5,7 +5,7 @@ import {
     ChevronLeft, Pencil, Image as ImageIcon, FileText, Mic, Plus,
     MoreHorizontal, Trash2, Globe, Youtube, Users, Sparkles,
     Tag, AlignLeft, Lock, Unlock, Copy, Shield, ShieldAlert, Check, X,
-    Search, Settings, Library
+    Search, Settings, Library, ListVideo
 } from "lucide-react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -13,6 +13,7 @@ const PageFlipEngine = dynamic(() => import("@/components/notebook/PageFlipEngin
 import AISidebar from "@/components/notebook/AISidebar";
 import KnowledgeHub from "@/components/notebook/KnowledgeHub";
 import VideoPanel, { VideoEntry } from "@/components/notebook/VideoPanel";
+import PlaylistImporter from "@/components/notebook/PlaylistImporter";
 import { useParams, useSearchParams } from "next/navigation";
 import {
     getNotebook, updateNotePageContent, updateNotePageDrawing, createNotePage,
@@ -275,6 +276,7 @@ export default function NotebookView() {
     const [loading, setLoading] = useState(true);
     const [isSidebarOpen, setSidebarOpen] = useState(false);
     const [isHubOpen, setIsHubOpen] = useState(false);
+    const [isPlaylistImporterOpen, setPlaylistImporterOpen] = useState(false);
     const [mode, setMode] = useState<"text" | "draw">("text");
     const [currentPageIndex, setCurrentPageIndex] = useState(0);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -677,6 +679,15 @@ export default function NotebookView() {
                                     <Library size={20} />
                                 </button>
 
+                                {/* Playlist Importer button */}
+                                <button
+                                    onClick={() => setPlaylistImporterOpen(v => !v)}
+                                    className={`p-2 rounded-full transition ${isPlaylistImporterOpen ? "bg-green-600 text-white shadow-[var(--glow-green)]" : "text-foreground hover:bg-white/5"}`}
+                                    title="Playlist to PDF Compiler"
+                                >
+                                    <ListVideo size={20} />
+                                </button>
+
                                 {canEdit && (
                                     <>
                                         <button
@@ -787,6 +798,21 @@ export default function NotebookView() {
                                 />
                             )}
                         </main>
+
+                        {/* ═══ PLAYLIST IMPORTER MODAL ═══ */}
+                        {isPlaylistImporterOpen && (
+                            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+                                <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto custom-scrollbar shadow-2xl rounded-xl animate-in zoom-in-95">
+                                    <button 
+                                        onClick={() => setPlaylistImporterOpen(false)}
+                                        className="absolute top-4 right-4 z-10 p-2 bg-gray-800/80 rounded-full hover:bg-gray-700 text-gray-300 backdrop-blur-md"
+                                    >
+                                        <X size={20} />
+                                    </button>
+                                    <PlaylistImporter />
+                                </div>
+                            </div>
+                        )}
 
                         {/* ═══ VIDEO PANEL ═══ */}
                         {mounted && (
