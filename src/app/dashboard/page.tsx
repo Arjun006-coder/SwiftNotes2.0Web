@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import ConfirmModal from "@/components/ui/ConfirmModal";
+import PlaylistPdfGenerator from "@/components/notebook/PlaylistPdfGenerator";
 
 export default function ShelfPage() {
     const [notebooks, setNotebooks] = useState<any[]>([]);
@@ -208,6 +209,13 @@ export default function ShelfPage() {
                     </section>
                 </>
             )}
+
+            {/* Playlist PDF Generator Section */}
+            <section className="animate-in fade-in slide-in-from-bottom-12 duration-700 delay-300 pb-20">
+                <div className="w-full">
+                    <PlaylistPdfGenerator />
+                </div>
+            </section>
 
             {/* Quick Create Bar */}
             <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-xl">
