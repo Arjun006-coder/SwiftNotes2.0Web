@@ -100,7 +100,9 @@ export default function PlaylistImporter() {
         if (taskId && isProcessing) {
             interval = setInterval(async () => {
                 try {
-                    const res = await fetch(`${BACKEND_URL}/status/${taskId}`);
+                    const res = await fetch(`${BACKEND_URL}/status/${taskId}`, {
+                        headers: { "ngrok-skip-browser-warning": "true" }
+                    });
                     if (!res.ok) throw new Error("Status check failed");
                     
                     const data = await res.json();
